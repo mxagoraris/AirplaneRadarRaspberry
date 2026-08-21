@@ -2,10 +2,8 @@
 Raspberry Pi flight radar script polling the OpenSky Network anonymous REST API
 for aircraft above a fixed location near Athens, Greece.
 
-Selects a SINGLE aircraft per refresh cycle at random from the whitelisted
-airlines for which all display fields are known, and refreshes every 60 seconds,
-because the target hardware is a small screen showing one flight at a time with
-the airline logo.
+Selects a SINGLE aircraft per refresh cycle at random from all available airlines
+and refreshes every 60 seconds.
 
 Route data comes from adsbdb.com and hexdb.io (both free, no API key) and is
 cached in memory per callsign.
@@ -25,33 +23,6 @@ import requests
 # ---------------------------------------------------------------------------
 OBSERVER_LAT = 37.940256
 OBSERVER_LON = 23.742944
-
-# ---------------------------------------------------------------------------
-# AIRLINE WHITELIST – edit this list to match the logo files you have on disk.
-#
-# These are the ICAO callsign prefixes the user has logo files for.  Logo files
-# must be named <PREFIX>.png inside the LOGO_DIR directory.  Only aircraft
-# whose callsign prefix appears in this list will ever be selected for display;
-# add or remove entries here to match the logo files present, and nothing else
-# in the script needs changing.
-#
-# Notes:
-#   • easyJet operates under several prefixes (EZY / EZS / EJU).  If you hold
-#     one easyJet logo file you may want all three listed here.
-#   • Aegean (AEE) and Ryanair (RYR) will dominate the feed over Athens, so
-#     expect them to appear most often.
-# ---------------------------------------------------------------------------
-LOGO_AIRLINES = ["AEE", "RYR", "EZY", "WZZ", "THY", "DLH", "BAW", "AFR", "KLM", "UAE"]
-
-# Set built once at module level for O(1) membership checks – do not edit this.
-WHITELIST_SET = set(LOGO_AIRLINES)
-
-# ---------------------------------------------------------------------------
-# Logo file locations – logo rendering is handled at the display stage.
-# The filename for a given prefix is derived as f"{LOGO_DIR}/{prefix}{LOGO_EXTENSION}".
-# ---------------------------------------------------------------------------
-LOGO_DIR = "logos"
-LOGO_EXTENSION = ".png"
 
 # ---------------------------------------------------------------------------
 # Bounding box – roughly ±77 km at this latitude
@@ -203,29 +174,6 @@ def lookup_airline(callsign):
         if result:
             return result
     return UNKNOWN_AIRLINE
-
-
-# ---------------------------------------------------------------------------
-# Whitelist helpers
-# ---------------------------------------------------------------------------
-
-def is_whitelisted_airline(callsign):
-    """
-    Return True if the callsign's leading alphabetic prefix is present in
-    WHITELIST_SET.  Uses the pre-built set for O(1) lookup.
-    """
-    return extract_airline_prefix(callsign) in WHITELIST_SET
-
-
-def logo_path_for(callsign):
-    """
-    Return the expected logo file path for a whitelisted callsign, or None if
-    the callsign's prefix is not in the whitelist.
-    """
-    prefix = extract_airline_prefix(callsign)
-    if prefix in WHITELIST_SET:
-        return f"{LOGO_DIR}/{prefix}{LOGO_EXTENSION}"
-    return None
 
 
 # ---------------------------------------------------------------------------
@@ -411,10 +359,6 @@ def is_complete(aircraft):
     cs = aircraft.get("callsign", "")
     if not cs or cs.strip().upper() == "N/A":
         return False
-    if aircraft.get("airline") == UNKNOWN_AIRLINE:
-        return False
-    if aircraft.get("origin", "?") == "?" or aircraft.get("destination", "?") == "?":
-        return False
     if aircraft.get("baro_altitude") is None:
         return False
     if aircraft.get("velocity_kmh") is None:
@@ -425,6 +369,7 @@ def is_complete(aircraft):
         return False
     if aircraft.get("distance_km") is None:
         return False
+    # Route can be "?" but aircraft can still be displayed
     return True
 
 
@@ -438,8 +383,7 @@ def fetch_raw_aircraft():
 
     Returns a list of aircraft dicts (no route data attached yet), or None if
     the request fails for any reason.  Route lookups are deliberately deferred
-    to select_one_aircraft so that we never waste API calls on airlines we
-    cannot display.
+    to select_one_aircraft.
     """
     params = {
         "lamin": LAT_MIN,
@@ -504,59 +448,44 @@ def fetch_raw_aircraft():
 
 
 # ---------------------------------------------------------------------------
-# Selection – whitelist-filtered, randomised, route-lazy
+# Selection – randomised, route-lazy
 # ---------------------------------------------------------------------------
 
-# The whitelist filter normally leaves only a handful of candidates, so this
-# ceiling on route lookups per cycle is rarely reached in practice.
 MAX_ROUTE_LOOKUPS_PER_CYCLE = 10
 
 
 def select_one_aircraft(raw_list):
     """
-    Choose one displayable aircraft at random from those belonging to a
-    whitelisted airline, returning a tuple:
+    Choose one displayable aircraft at random from all available aircraft,
+    returning a tuple:
 
-        (aircraft_dict_or_none, total_scanned, whitelisted_count)
+        (aircraft_dict_or_none, total_scanned, displayable_count)
 
-    The three-stage pipeline is ordered deliberately to minimise network cost:
+    The pipeline is ordered to minimise network cost:
 
     Stage 1 – cheap, no network calls:
-        Filter *raw_list* to candidates that (a) pass is_whitelisted_airline
-        and (b) pass all non-route completeness checks (baro_altitude,
-        velocity_kmh, true_track not None; on_ground False; callsign valid;
-        airline known).  This whitelist prune happens BEFORE any network call –
-        that is exactly why this version is cheaper than the previous
-        closest-first design: we never spend a route lookup on an airline we
-        cannot display.
+        Filter *raw_list* to candidates that pass basic completeness checks
+        (baro_altitude, velocity_kmh, true_track not None; on_ground False;
+        callsign valid).
 
     Stage 2 – free, in-process only:
-        Shuffle the surviving candidate list.  Shuffling AFTER filtering (never
-        before) is deliberate: shuffling first would scatter route lookups
-        across airlines we cannot show.  The shuffle gives variety on the shelf
-        display instead of always showing the same nearby aircraft.
+        Shuffle the surviving candidate list for variety.
 
     Stage 3 – potentially costly (network):
         Walk the shuffled list calling lookup_route on each candidate.  Return
-        the FIRST one for which is_complete() passes (early exit – no point
-        resolving the rest).  Cached callsigns cost nothing and do NOT count
-        toward MAX_ROUTE_LOOKUPS_PER_CYCLE; only genuine network calls count.
-        Once the budget is exhausted we continue only with candidates already
-        resolvable via _is_cached.
+        the FIRST one for which is_complete() passes (early exit).  Cached
+        callsigns cost nothing and do NOT count toward MAX_ROUTE_LOOKUPS_PER_CYCLE;
+        only genuine network calls count.
     """
     total_scanned = len(raw_list)
 
     # ------------------------------------------------------------------
-    # Stage 1: whitelist + cheap completeness filter (zero network calls)
+    # Stage 1: basic completeness filter (zero network calls)
     # ------------------------------------------------------------------
     candidates = []
     for ac in raw_list:
         cs = ac.get("callsign", "")
         if not cs or cs.strip().upper() == "N/A":
-            continue
-        if not is_whitelisted_airline(cs):
-            continue
-        if ac.get("airline") == UNKNOWN_AIRLINE:
             continue
         if ac.get("baro_altitude") is None:
             continue
@@ -568,13 +497,13 @@ def select_one_aircraft(raw_list):
             continue
         candidates.append(ac)
 
-    whitelisted_count = len(candidates)
+    displayable_count = len(candidates)
 
     if not candidates:
-        return (None, total_scanned, whitelisted_count)
+        return (None, total_scanned, displayable_count)
 
     # ------------------------------------------------------------------
-    # Stage 2: shuffle for variety (after filtering, never before)
+    # Stage 2: shuffle for variety
     # ------------------------------------------------------------------
     random.shuffle(candidates)
 
@@ -599,24 +528,22 @@ def select_one_aircraft(raw_list):
         ac["destination"] = destination
 
         if is_complete(ac):
-            return (ac, total_scanned, whitelisted_count)
+            return (ac, total_scanned, displayable_count)
 
     # Nothing qualified within budget
-    return (None, total_scanned, whitelisted_count)
+    return (None, total_scanned, displayable_count)
 
 
 # ---------------------------------------------------------------------------
 # Display
 # ---------------------------------------------------------------------------
 
-def print_flight_card(aircraft, timestamp, total_scanned, whitelisted_count):
+def print_flight_card(aircraft, timestamp, total_scanned, displayable_count):
     """
     Print a compact boxed flight card (~46 characters wide) using box-drawing
-    characters.  Stable layout between refreshes so the shelf display does not
-    flicker.
+    characters.  Stable layout between refreshes so the display does not flicker.
 
-    When *aircraft* is None, prints a placeholder card showing counts so the
-    screen never looks broken.
+    When *aircraft* is None, prints a placeholder card showing counts.
     """
     width = 46  # inner content width (excluding the two border characters)
     h_line = "─" * width
@@ -632,10 +559,10 @@ def print_flight_card(aircraft, timestamp, total_scanned, whitelisted_count):
 
     if aircraft is None:
         blank()
-        row("✈  Searching for a whitelisted flight...")
+        row("✈  Searching for a flight...")
         blank()
         row(f"   Aircraft in bbox : {total_scanned}")
-        row(f"   Whitelisted match : {whitelisted_count}")
+        row(f"   Displayable      : {displayable_count}")
         blank()
         row(f"   {timestamp}")
         blank()
@@ -648,7 +575,6 @@ def print_flight_card(aircraft, timestamp, total_scanned, whitelisted_count):
         spd       = aircraft.get("velocity_kmh")
         dist      = aircraft.get("distance_km")
         compass   = aircraft.get("compass", "?")
-        logo      = logo_path_for(cs) or "—"
 
         alt_str  = f"{int(alt):,} m"   if alt  is not None else "? m"
         spd_str  = f"{spd} km/h"       if spd  is not None else "? km/h"
@@ -661,11 +587,6 @@ def print_flight_card(aircraft, timestamp, total_scanned, whitelisted_count):
         row(f"   Altitude: {alt_str}")
         row(f"   Speed   : {spd_str}")
         row(f"   From us : {dist_str}")
-        blank()
-        # Development aid – shows which logo file would be loaded at the
-        # display stage.  Replace this line with the actual rendered logo
-        # image once the screen is wired up.
-        row(f"   Logo    : {logo}")
         blank()
         row(f"   Scanned {total_scanned} aircraft")
         row(f"   {timestamp}")
@@ -696,8 +617,8 @@ def main():
             # Fetch failed – show an empty card so the screen stays alive
             print_flight_card(None, timestamp, 0, 0)
         else:
-            aircraft, total_scanned, whitelisted_count = select_one_aircraft(raw_list)
-            print_flight_card(aircraft, timestamp, total_scanned, whitelisted_count)
+            aircraft, total_scanned, displayable_count = select_one_aircraft(raw_list)
+            print_flight_card(aircraft, timestamp, total_scanned, displayable_count)
 
         print()
         time.sleep(POLL_INTERVAL)
