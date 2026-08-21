@@ -643,11 +643,10 @@ def fetch_raw_aircraft():
         return None
 
     except Exception as exc:
-
-        print(
-            f"OpenSky error: {exc}"
-        )
-
+        import traceback
+        print(f"ERROR TYPE: {type(exc).__name__}")
+        print(f"ERROR: {exc}")
+        traceback.print_exc()
         return None
 
     states = data.get(
