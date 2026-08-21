@@ -619,7 +619,8 @@ def fetch_raw_aircraft():
         response = requests.get(
             OPENSKY_URL,
             params=params,
-            timeout=REQUEST_TIMEOUT
+            timeout=REQUEST_TIMEOUT,
+            verify="/etc/ssl/certs/ca-certificates.crt"
         )
 
         if response.status_code == 429:
