@@ -1,8 +1,18 @@
-#!/usr/bin/env python3
 """
-Aircraft Radar for 64x32 RGB LED Matrix
-Displays real-time flight data on Waveshare P2.5 LED Matrix
-Uses PIL to generate images optimized for the display
+Raspberry Pi 64x32 HUB75 Flight Radar
+
+Polls the OpenSky Network for aircraft around Athens, Greece,
+selects one aircraft at random, looks up its route, and displays
+the result on a 64x32 RGB HUB75 LED matrix.
+
+Run from the rpi-rgb-led-matrix virtual environment:
+
+    sudo ./venv/bin/python aircraft_radar.py
+
+Dependencies:
+    requests
+    pillow
+    rgbmatrix
 """
 
 import math
@@ -10,40 +20,131 @@ import time
 import re
 import random
 import requests
-from PIL import Image, ImageDraw, ImageFont
-import subprocess
-import os
 
-# ---------------------------------------------------------------------------
-# Observer location – Athens, Greece
-# ---------------------------------------------------------------------------
+from PIL import Image, ImageDraw, ImageFont
+from rgbmatrix import RGBMatrix, RGBMatrixOptions
+
+
+# ============================================================================
+# MATRIX CONFIGURATION
+# ============================================================================
+
+MATRIX_WIDTH = 64
+MATRIX_HEIGHT = 32
+
+
+def create_matrix():
+    """Create and configure the 64x32 RGB matrix."""
+
+    options = RGBMatrixOptions()
+
+    options.rows = 32
+    options.cols = 64
+    options.chain_length = 1
+    options.parallel = 1
+
+    # This matches your working demo:
+    # --led-slowdown-gpio=2
+    options.gpio_slowdown = 2
+
+    options.hardware_mapping = "regular"
+
+    return RGBMatrix(options=options)
+
+
+# ============================================================================
+# DISPLAY FONTS
+# ============================================================================
+
+def load_font(size):
+    """
+    Load a font.
+
+    We try several common locations used by the RGB matrix project,
+    then fall back to PIL's built-in font.
+    """
+
+    candidates = [
+        f"/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        f"/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed.ttf",
+    ]
+
+    for path in candidates:
+        try:
+            return ImageFont.truetype(path, size)
+        except OSError:
+            pass
+
+    return ImageFont.load_default()
+
+
+FONT_SMALL = load_font(7)
+FONT_MEDIUM = load_font(9)
+FONT_LARGE = load_font(11)
+
+
+# ============================================================================
+# COLOURS
+# ============================================================================
+
+WHITE = (255, 255, 255)
+CYAN = (0, 220, 255)
+GREEN = (0, 255, 80)
+YELLOW = (255, 220, 0)
+RED = (255, 60, 60)
+GREY = (130, 130, 130)
+
+
+# ============================================================================
+# OBSERVER LOCATION – ATHENS
+# ============================================================================
+
 OBSERVER_LAT = 37.940256
 OBSERVER_LON = 23.742944
 
+
+# ============================================================================
+# BOUNDING BOX
+# ============================================================================
+
 BBOX_DELTA = 0.7
+
 LAT_MIN = OBSERVER_LAT - BBOX_DELTA
 LAT_MAX = OBSERVER_LAT + BBOX_DELTA
+
 LON_MIN = OBSERVER_LON - BBOX_DELTA
 LON_MAX = OBSERVER_LON + BBOX_DELTA
 
-# ---------------------------------------------------------------------------
-# Polling
-# ---------------------------------------------------------------------------
-POLL_INTERVAL = 60  # seconds
 
-# ---------------------------------------------------------------------------
-# OpenSky Network API
-# ---------------------------------------------------------------------------
+# ============================================================================
+# POLLING
+# ============================================================================
+
+POLL_INTERVAL = 60
+
+
+# ============================================================================
+# OPENSKY
+# ============================================================================
+
 OPENSKY_URL = "https://opensky-network.org/api/states/all"
+
 REQUEST_TIMEOUT = 10
 
-# ---------------------------------------------------------------------------
-# Airline lookup table (shortened names for display)
-# ---------------------------------------------------------------------------
+
+# ============================================================================
+# AIRLINE LOOKUP
+# ============================================================================
+
 AIRLINE_LOOKUP = {
-    "AEE": "Aegean",
-    "OAL": "Olympic",
+
+    # Greek / regional
+    "AEE": "Aegean Airlines",
+    "OAL": "Olympic Air",
     "SKY": "Sky Express",
+    "SEH": "Sky Express",
+
+    # European low-cost
     "RYR": "Ryanair",
     "EZY": "easyJet",
     "EZS": "easyJet",
@@ -51,455 +152,1043 @@ AIRLINE_LOOKUP = {
     "WZZ": "Wizz Air",
     "VLG": "Vueling",
     "IBE": "Iberia",
-    "BEL": "Brussels",
+    "BEL": "Brussels Airlines",
     "SWR": "Swiss",
-    "AUA": "Austrian",
+    "AUA": "Austrian Airlines",
     "EIN": "Aer Lingus",
     "OCN": "Eurowings",
-    "BAW": "British Air",
+
+    # European full-service
+    "BAW": "British Airways",
     "DLH": "Lufthansa",
     "AFR": "Air France",
     "KLM": "KLM",
-    "TAP": "TAP",
-    "THY": "Turkish",
-    "TOM": "TUI",
+    "TAP": "TAP Air Portugal",
+    "THY": "Turkish Airlines",
+    "TOM": "TUI Airways",
     "FIN": "Finnair",
-    "SAS": "SAS",
+    "SAS": "Scandinavian Airlines",
+    "CSA": "Czech Airlines",
+    "LOT": "LOT Polish Airlines",
+    "ALK": "SriLankan Airlines",
+    "BMS": "Air Serbia",
+    "CTN": "Croatia Airlines",
+    "ROT": "Tarom",
+
+    # Middle East / Gulf
     "UAE": "Emirates",
-    "QTR": "Qatar",
-    "ETH": "Ethiopian",
-    "ETD": "Etihad",
+    "QTR": "Qatar Airways",
+    "ETH": "Ethiopian Airlines",
+    "ETD": "Etihad Airways",
     "MSR": "EgyptAir",
-    "UAL": "United",
-    "DAL": "Delta",
-    "AAL": "American",
-    "CPA": "Cathay",
-    "SIA": "Singapore",
+    "MEA": "Middle East Airlines",
+    "SVA": "Saudia",
+    "FDB": "flydubai",
+    "ABY": "Air Arabia",
+
+    # North American
+    "UAL": "United Airlines",
+    "DAL": "Delta Air Lines",
+    "AAL": "American Airlines",
+    "WJA": "WestJet",
+    "ACA": "Air Canada",
+
+    # Asian / other
+    "CPA": "Cathay Pacific",
+    "SIA": "Singapore Airlines",
+    "MAS": "Malaysia Airlines",
+    "ANA": "All Nippon Airways",
+    "JAL": "Japan Airlines",
+    "KAL": "Korean Air",
+    "CSN": "China Southern",
+    "CCA": "Air China",
+    "HFA": "Air Haifa",
+
+    # Cargo
+    "FDX": "FedEx",
+    "UPS": "UPS Airlines",
+    "BOX": "ASL Airlines",
+    "BCS": "European Air Transport",
 }
 
 UNKNOWN_AIRLINE = "Unknown"
 
-# ---------------------------------------------------------------------------
-# Geometry helpers
-# ---------------------------------------------------------------------------
+
+# ============================================================================
+# GEOMETRY
+# ============================================================================
 
 def haversine_km(lat1, lon1, lat2, lon2):
-    """Return the great-circle distance in kilometres between two points."""
+
     R = 6371.0
-    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+
     dphi = math.radians(lat2 - lat1)
     dlambda = math.radians(lon2 - lon1)
-    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
-    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+    a = (
+        math.sin(dphi / 2) ** 2
+        + math.cos(phi1)
+        * math.cos(phi2)
+        * math.sin(dlambda / 2) ** 2
+    )
+
+    return R * 2 * math.atan2(
+        math.sqrt(a),
+        math.sqrt(1 - a)
+    )
 
 
 def bearing_degrees(lat1, lon1, lat2, lon2):
-    """Return the initial bearing in degrees (0–360) from point 1 to point 2."""
-    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+
     dlambda = math.radians(lon2 - lon1)
+
     x = math.sin(dlambda) * math.cos(phi2)
-    y = math.cos(phi1) * math.sin(phi2) - math.sin(phi1) * math.cos(phi2) * math.cos(dlambda)
-    return (math.degrees(math.atan2(x, y)) + 360) % 360
+
+    y = (
+        math.cos(phi1) * math.sin(phi2)
+        - math.sin(phi1)
+        * math.cos(phi2)
+        * math.cos(dlambda)
+    )
+
+    return (
+        math.degrees(math.atan2(x, y)) + 360
+    ) % 360
 
 
 def bearing_to_compass(degrees):
-    """Convert a bearing in degrees to an 8-point compass label."""
-    labels = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
+
+    labels = [
+        "N",
+        "NE",
+        "E",
+        "SE",
+        "S",
+        "SW",
+        "W",
+        "NW",
+    ]
+
     return labels[round(degrees / 45) % 8]
 
 
-# ---------------------------------------------------------------------------
-# Callsign / airline helpers
-# ---------------------------------------------------------------------------
+# ============================================================================
+# CALLSIGN / AIRLINE
+# ============================================================================
 
 def extract_airline_prefix(callsign):
-    """Return the leading alphabetic portion of a callsign, uppercased."""
-    match = re.match(r"^([A-Za-z]+)", callsign or "")
-    return match.group(1).upper() if match else ""
+
+    match = re.match(
+        r"^([A-Za-z]+)",
+        callsign or ""
+    )
+
+    return (
+        match.group(1).upper()
+        if match
+        else ""
+    )
 
 
 def lookup_airline(callsign):
-    """Try progressively shorter prefix slices against AIRLINE_LOOKUP."""
+
     prefix = extract_airline_prefix(callsign)
-    for length in range(len(prefix), 0, -1):
-        result = AIRLINE_LOOKUP.get(prefix[:length])
+
+    for length in range(
+        len(prefix),
+        0,
+        -1
+    ):
+
+        result = AIRLINE_LOOKUP.get(
+            prefix[:length]
+        )
+
         if result:
             return result
+
     return UNKNOWN_AIRLINE
 
 
-# ---------------------------------------------------------------------------
-# OpenSky state-vector field indices
-# ---------------------------------------------------------------------------
-IDX_ICAO24         = 0
-IDX_CALLSIGN       = 1
-IDX_LONGITUDE      = 5
-IDX_LATITUDE       = 6
-IDX_BARO_ALTITUDE  = 7
-IDX_ON_GROUND      = 8
-IDX_VELOCITY       = 9
-IDX_TRUE_TRACK     = 10
+# ============================================================================
+# OPENSKY FIELD INDICES
+# ============================================================================
 
-# ---------------------------------------------------------------------------
-# Route lookup – cached
-# ---------------------------------------------------------------------------
+IDX_ICAO24 = 0
+IDX_CALLSIGN = 1
+IDX_ORIGIN_COUNTRY = 2
+IDX_LONGITUDE = 5
+IDX_LATITUDE = 6
+IDX_BARO_ALTITUDE = 7
+IDX_ON_GROUND = 8
+IDX_VELOCITY = 9
+IDX_TRUE_TRACK = 10
 
-ADSBDB_URL         = "https://api.adsbdb.com/v0/callsign/{callsign}"
-HEXDB_URL          = "https://hexdb.io/api/v1/route/icao/{callsign}"
+
+# ============================================================================
+# ROUTE LOOKUP
+# ============================================================================
+
+ADSBDB_URL = (
+    "https://api.adsbdb.com/v0/callsign/{callsign}"
+)
+
+HEXDB_URL = (
+    "https://hexdb.io/api/v1/route/icao/{callsign}"
+)
+
 ROUTE_REQUEST_TIMEOUT = 6
-ROUTE_CACHE        = {}
+
+ROUTE_CACHE = {}
+
 ROUTE_CACHE_MAX_SIZE = 500
-ROUTE_UNKNOWN_TTL  = 600
+
+ROUTE_UNKNOWN_TTL = 600
 
 
 def _evict_oldest_cache_entry():
-    """Remove the oldest entry from cache."""
+
     if ROUTE_CACHE:
-        oldest_key = next(iter(ROUTE_CACHE))
+
+        oldest_key = next(
+            iter(ROUTE_CACHE)
+        )
+
         del ROUTE_CACHE[oldest_key]
 
 
 def _query_adsbdb(callsign):
-    """Query adsbdb.com for route data."""
+
     try:
-        url = ADSBDB_URL.format(callsign=callsign)
-        response = requests.get(url, timeout=ROUTE_REQUEST_TIMEOUT)
+
+        url = ADSBDB_URL.format(
+            callsign=callsign
+        )
+
+        response = requests.get(
+            url,
+            timeout=ROUTE_REQUEST_TIMEOUT
+        )
+
         if response.status_code != 200:
             return None
+
         data = response.json()
-        route = data.get("response", {}).get("flightroute", {})
-        origin_data = route.get("origin", {})
-        destination_data = route.get("destination", {})
-        origin = (origin_data.get("iata_code") or origin_data.get("icao_code") or "").strip()
-        destination = (destination_data.get("iata_code") or destination_data.get("icao_code") or "").strip()
+
+        route = (
+            data
+            .get("response", {})
+            .get("flightroute", {})
+        )
+
+        origin_data = route.get(
+            "origin", {}
+        )
+
+        destination_data = route.get(
+            "destination", {}
+        )
+
+        origin = (
+            origin_data.get("iata_code")
+            or origin_data.get("icao_code")
+            or ""
+        ).strip()
+
+        destination = (
+            destination_data.get("iata_code")
+            or destination_data.get("icao_code")
+            or ""
+        ).strip()
+
         if origin and destination:
-            return (origin, destination)
+
+            return (
+                origin,
+                destination
+            )
+
         return None
-    except:
+
+    except Exception:
+
         return None
 
 
 def _query_hexdb(callsign):
-    """Query hexdb.io for route data."""
+
     try:
-        url = HEXDB_URL.format(callsign=callsign)
-        response = requests.get(url, timeout=ROUTE_REQUEST_TIMEOUT)
+
+        url = HEXDB_URL.format(
+            callsign=callsign
+        )
+
+        response = requests.get(
+            url,
+            timeout=ROUTE_REQUEST_TIMEOUT
+        )
+
         if response.status_code != 200:
             return None
+
         data = response.json()
-        raw_route = data.get("route") or data.get("flightroute") or ""
-        raw_route = raw_route.strip()
+
+        raw_route = (
+            data.get("route")
+            or data.get("flightroute")
+            or ""
+        ).strip()
+
         if not raw_route:
             return None
-        segments = [s.strip() for s in raw_route.split("-") if s.strip()]
+
+        segments = [
+            s.strip()
+            for s in raw_route.split("-")
+            if s.strip()
+        ]
+
         if len(segments) < 2:
             return None
-        return (segments[0], segments[-1])
-    except:
+
+        return (
+            segments[0],
+            segments[-1]
+        )
+
+    except Exception:
+
         return None
 
 
 def _is_cached(callsign):
-    """Return True if callsign is in cache."""
+
     entry = ROUTE_CACHE.get(callsign)
+
     if entry is None:
         return False
-    if isinstance(entry, tuple) and len(entry) == 2 and entry[0] is not None:
+
+    if entry[0] is not None:
         return True
-    if isinstance(entry, tuple) and len(entry) == 2 and entry[0] is None:
-        _, cached_at = entry
-        return (time.time() - cached_at) < ROUTE_UNKNOWN_TTL
-    return False
+
+    _, cached_at = entry
+
+    return (
+        time.time() - cached_at
+    ) < ROUTE_UNKNOWN_TTL
 
 
 def lookup_route(callsign):
-    """Return (origin, destination) for callsign."""
-    if not callsign or callsign.strip().upper() == "N/A":
+
+    if (
+        not callsign
+        or callsign.strip().upper() == "N/A"
+    ):
+
         return ("?", "?")
 
     entry = ROUTE_CACHE.get(callsign)
+
     if entry is not None:
+
         if entry[0] is not None:
             return entry
+
         _, cached_at = entry
-        if (time.time() - cached_at) < ROUTE_UNKNOWN_TTL:
+
+        if (
+            time.time() - cached_at
+        ) < ROUTE_UNKNOWN_TTL:
+
             return ("?", "?")
 
-    result = _query_adsbdb(callsign) or _query_hexdb(callsign)
+    result = (
+        _query_adsbdb(callsign)
+        or _query_hexdb(callsign)
+    )
 
     if len(ROUTE_CACHE) >= ROUTE_CACHE_MAX_SIZE:
+
         _evict_oldest_cache_entry()
 
     if result:
+
         ROUTE_CACHE[callsign] = result
+
         return result
-    else:
-        ROUTE_CACHE[callsign] = (None, time.time())
-        return ("?", "?")
+
+    ROUTE_CACHE[callsign] = (
+        None,
+        time.time()
+    )
+
+    return ("?", "?")
 
 
-# ---------------------------------------------------------------------------
-# Completeness check
-# ---------------------------------------------------------------------------
+# ============================================================================
+# COMPLETENESS
+# ============================================================================
 
 def is_complete(aircraft):
-    """Return True when all fields required for display are present."""
-    cs = aircraft.get("callsign", "")
-    if not cs or cs.strip().upper() == "N/A":
+
+    cs = aircraft.get(
+        "callsign",
+        ""
+    )
+
+    if (
+        not cs
+        or cs.strip().upper() == "N/A"
+    ):
         return False
-    if aircraft.get("baro_altitude") is None:
+
+    if aircraft.get(
+        "baro_altitude"
+    ) is None:
         return False
-    if aircraft.get("velocity_kmh") is None:
+
+    if aircraft.get(
+        "velocity_kmh"
+    ) is None:
         return False
-    if aircraft.get("true_track") is None:
+
+    if aircraft.get(
+        "true_track"
+    ) is None:
         return False
-    if aircraft.get("on_ground", True):
+
+    if aircraft.get(
+        "on_ground",
+        True
+    ):
         return False
-    if aircraft.get("distance_km") is None:
+
+    if aircraft.get(
+        "distance_km"
+    ) is None:
         return False
+
     return True
 
 
-# ---------------------------------------------------------------------------
-# OpenSky fetch
-# ---------------------------------------------------------------------------
+# ============================================================================
+# OPENSKY FETCH
+# ============================================================================
 
 def fetch_raw_aircraft():
-    """Poll the OpenSky Network for state vectors inside bounding box."""
+
     params = {
+
         "lamin": LAT_MIN,
         "lomin": LON_MIN,
         "lamax": LAT_MAX,
         "lomax": LON_MAX,
+
     }
+
     try:
-        response = requests.get(OPENSKY_URL, params=params, timeout=REQUEST_TIMEOUT)
-        if response.status_code != 200:
+
+        response = requests.get(
+            OPENSKY_URL,
+            params=params,
+            timeout=REQUEST_TIMEOUT
+        )
+
+        if response.status_code == 429:
+
+            print(
+                "OpenSky rate limit."
+            )
+
             return None
+
+        if response.status_code != 200:
+
+            print(
+                f"OpenSky HTTP "
+                f"{response.status_code}"
+            )
+
+            return None
+
         data = response.json()
-    except:
+
+    except requests.exceptions.Timeout:
+
+        print(
+            "OpenSky request timed out."
+        )
+
         return None
 
-    states = data.get("states") or []
+    except requests.exceptions.ConnectionError:
+
+        print(
+            "Could not connect to OpenSky."
+        )
+
+        return None
+
+    except Exception as exc:
+
+        print(
+            f"OpenSky error: {exc}"
+        )
+
+        return None
+
+    states = data.get(
+        "states"
+    ) or []
+
     aircraft_list = []
 
     for state in states:
-        lat = state[IDX_LATITUDE]
-        lon = state[IDX_LONGITUDE]
-        if lat is None or lon is None:
+
+        lat = state[
+            IDX_LATITUDE
+        ]
+
+        lon = state[
+            IDX_LONGITUDE
+        ]
+
+        if (
+            lat is None
+            or lon is None
+        ):
             continue
 
-        raw_callsign = state[IDX_CALLSIGN]
-        callsign = (raw_callsign.strip() if raw_callsign else "N/A") or "N/A"
+        raw_callsign = state[
+            IDX_CALLSIGN
+        ]
 
-        velocity_ms = state[IDX_VELOCITY]
-        velocity_kmh = round(velocity_ms * 3.6) if velocity_ms is not None else None
+        callsign = (
+            raw_callsign.strip()
+            if raw_callsign
+            else "N/A"
+        ) or "N/A"
 
-        dist = round(haversine_km(OBSERVER_LAT, OBSERVER_LON, lat, lon), 1)
-        brng = round(bearing_degrees(OBSERVER_LAT, OBSERVER_LON, lat, lon), 1)
+        velocity_ms = state[
+            IDX_VELOCITY
+        ]
+
+        velocity_kmh = (
+            round(
+                velocity_ms * 3.6
+            )
+            if velocity_ms is not None
+            else None
+        )
+
+        dist = round(
+            haversine_km(
+                OBSERVER_LAT,
+                OBSERVER_LON,
+                lat,
+                lon
+            ),
+            2
+        )
+
+        brng = round(
+            bearing_degrees(
+                OBSERVER_LAT,
+                OBSERVER_LON,
+                lat,
+                lon
+            ),
+            1
+        )
 
         aircraft_list.append({
-            "icao24":        state[IDX_ICAO24],
-            "callsign":      callsign,
-            "latitude":      lat,
-            "longitude":     lon,
-            "baro_altitude": state[IDX_BARO_ALTITUDE],
-            "velocity_kmh":  velocity_kmh,
-            "true_track":    state[IDX_TRUE_TRACK],
-            "on_ground":     state[IDX_ON_GROUND],
-            "distance_km":   dist,
-            "bearing":       brng,
-            "compass":       bearing_to_compass(brng),
-            "airline":       lookup_airline(callsign),
+
+            "icao24":
+                state[IDX_ICAO24],
+
+            "callsign":
+                callsign,
+
+            "origin_country":
+                state[IDX_ORIGIN_COUNTRY],
+
+            "latitude":
+                lat,
+
+            "longitude":
+                lon,
+
+            "baro_altitude":
+                state[IDX_BARO_ALTITUDE],
+
+            "velocity_kmh":
+                velocity_kmh,
+
+            "true_track":
+                state[IDX_TRUE_TRACK],
+
+            "on_ground":
+                state[IDX_ON_GROUND],
+
+            "distance_km":
+                dist,
+
+            "bearing":
+                brng,
+
+            "compass":
+                bearing_to_compass(brng),
+
+            "airline":
+                lookup_airline(callsign),
+
         })
 
     return aircraft_list
 
 
-# ---------------------------------------------------------------------------
-# Selection
-# ---------------------------------------------------------------------------
+# ============================================================================
+# AIRCRAFT SELECTION
+# ============================================================================
 
 MAX_ROUTE_LOOKUPS_PER_CYCLE = 10
 
 
 def select_one_aircraft(raw_list):
-    """Choose one displayable aircraft at random."""
-    total_scanned = len(raw_list)
+
+    total_scanned = len(
+        raw_list
+    )
 
     candidates = []
+
     for ac in raw_list:
-        cs = ac.get("callsign", "")
-        if not cs or cs.strip().upper() == "N/A":
+
+        cs = ac.get(
+            "callsign",
+            ""
+        )
+
+        if (
+            not cs
+            or cs.strip().upper() == "N/A"
+        ):
             continue
-        if ac.get("baro_altitude") is None:
+
+        if ac.get(
+            "baro_altitude"
+        ) is None:
             continue
-        if ac.get("velocity_kmh") is None:
+
+        if ac.get(
+            "velocity_kmh"
+        ) is None:
             continue
-        if ac.get("true_track") is None:
+
+        if ac.get(
+            "true_track"
+        ) is None:
             continue
-        if ac.get("on_ground", True):
+
+        if ac.get(
+            "on_ground",
+            True
+        ):
             continue
+
         candidates.append(ac)
 
-    displayable_count = len(candidates)
+    displayable_count = len(
+        candidates
+    )
 
     if not candidates:
-        return (None, total_scanned, displayable_count)
+
+        return (
+            None,
+            total_scanned,
+            displayable_count
+        )
 
     random.shuffle(candidates)
 
     network_calls_used = 0
 
     for ac in candidates:
+
         cs = ac["callsign"]
+
         cached = _is_cached(cs)
 
         if not cached:
-            if network_calls_used >= MAX_ROUTE_LOOKUPS_PER_CYCLE:
+
+            if (
+                network_calls_used
+                >= MAX_ROUTE_LOOKUPS_PER_CYCLE
+            ):
                 continue
+
             network_calls_used += 1
 
-        origin, destination = lookup_route(cs)
-        ac["origin"]      = origin
+        origin, destination = lookup_route(
+            cs
+        )
+
+        ac["origin"] = origin
         ac["destination"] = destination
 
         if is_complete(ac):
-            return (ac, total_scanned, displayable_count)
 
-    return (None, total_scanned, displayable_count)
+            return (
+                ac,
+                total_scanned,
+                displayable_count
+            )
+
+    return (
+        None,
+        total_scanned,
+        displayable_count
+    )
 
 
-# ---------------------------------------------------------------------------
-# Image Generation for 64x32 LED Matrix
-# ---------------------------------------------------------------------------
+# ============================================================================
+# TEXT HELPERS
+# ============================================================================
 
-def create_flight_image(aircraft):
-    """Create a 64x32 PIL image with flight info."""
-    image = Image.new("RGB", (64, 32), color=(0, 0, 0))
+def fit_text(text, max_chars):
+
+    text = str(text)
+
+    if len(text) <= max_chars:
+        return text
+
+    if max_chars <= 3:
+        return text[:max_chars]
+
+    return text[:max_chars - 3] + "..."
+
+
+# ============================================================================
+# LED DISPLAY
+# ============================================================================
+
+def draw_flight_card(
+    matrix,
+    aircraft,
+    total_scanned,
+    displayable_count
+):
+
+    image = Image.new(
+        "RGB",
+        (
+            MATRIX_WIDTH,
+            MATRIX_HEIGHT
+        ),
+        (0, 0, 0)
+    )
+
     draw = ImageDraw.Draw(image)
-    
-    # Try to load fonts
-    try:
-        font_tiny = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", 5)
-        font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", 6)
-        font_medium = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", 7)
-    except:
-        font_tiny = font_small = font_medium = ImageFont.load_default()
+
+    # ------------------------------------------------------------------
+    # No aircraft
+    # ------------------------------------------------------------------
 
     if aircraft is None:
-        # Searching state
-        draw.text((2, 2), "Searching...", fill=(255, 0, 0), font=font_small)
-        draw.text((2, 10), "Athens", fill=(0, 255, 0), font=font_small)
-        draw.text((2, 20), time.strftime("%H:%M"), fill=(100, 100, 100), font=font_tiny)
+
+        draw.text(
+            (2, 2),
+            "FLIGHT RADAR",
+            font=FONT_MEDIUM,
+            fill=WHITE
+        )
+
+        draw.text(
+            (2, 13),
+            "SEARCHING...",
+            font=FONT_SMALL,
+            fill=YELLOW
+        )
+
+        draw.text(
+            (2, 23),
+            f"{total_scanned} ACFT",
+            font=FONT_SMALL,
+            fill=CYAN
+        )
+
+        matrix.SetImage(image)
+
+        return
+
+    # ------------------------------------------------------------------
+    # Aircraft information
+    # ------------------------------------------------------------------
+
+    callsign = aircraft.get(
+        "callsign",
+        "N/A"
+    )
+
+    airline = aircraft.get(
+        "airline",
+        UNKNOWN_AIRLINE
+    )
+
+    origin = aircraft.get(
+        "origin",
+        "?"
+    )
+
+    destination = aircraft.get(
+        "destination",
+        "?"
+    )
+
+    altitude = aircraft.get(
+        "baro_altitude"
+    )
+
+    speed = aircraft.get(
+        "velocity_kmh"
+    )
+
+    distance = aircraft.get(
+        "distance_km"
+    )
+
+    compass = aircraft.get(
+        "compass",
+        "?"
+    )
+
+    # ------------------------------------------------------------------
+    # Line 1 – callsign
+    # ------------------------------------------------------------------
+
+    draw.text(
+        (1, 0),
+        fit_text(
+            "✈ " + callsign,
+            10
+        ),
+        font=FONT_LARGE,
+        fill=WHITE
+    )
+
+    # ------------------------------------------------------------------
+    # Line 2 – airline
+    # ------------------------------------------------------------------
+
+    draw.text(
+        (1, 10),
+        fit_text(
+            airline.upper(),
+            17
+        ),
+        font=FONT_SMALL,
+        fill=CYAN
+    )
+
+    # ------------------------------------------------------------------
+    # Line 3 – route
+    # ------------------------------------------------------------------
+
+    route = (
+        f"{origin} > {destination}"
+    )
+
+    draw.text(
+        (1, 17),
+        fit_text(
+            route,
+            18
+        ),
+        font=FONT_MEDIUM,
+        fill=GREEN
+    )
+
+    # ------------------------------------------------------------------
+    # Line 4 – altitude / speed
+    # ------------------------------------------------------------------
+
+    if altitude is not None:
+
+        altitude_km = altitude / 1000
+
+        alt_text = (
+            f"ALT {altitude_km:.1f}km"
+        )
+
     else:
-        cs        = aircraft.get("callsign", "N/A")[:8]
-        airline   = aircraft.get("airline", "Unknown")[:10]
-        origin    = aircraft.get("origin", "?")
-        dest      = aircraft.get("destination", "?")
-        alt       = aircraft.get("baro_altitude")
-        spd       = aircraft.get("velocity_kmh")
-        compass   = aircraft.get("compass", "?")
 
-        alt_str  = f"{int(alt)//100}00m" if alt is not None else "?m"
-        spd_str  = f"{spd}kph" if spd is not None else "?"
+        alt_text = "ALT ?"
 
-        # Line 1: Callsign (yellow)
-        draw.text((1, 1), cs, fill=(255, 255, 0), font=font_medium)
-        
-        # Line 2: Airline (green)
-        draw.text((1, 9), airline, fill=(0, 255, 0), font=font_small)
-        
-        # Line 3: Route (cyan)
-        route_str = f"{origin}-{dest}"
-        draw.text((1, 15), route_str, fill=(0, 200, 255), font=font_small)
-        
-        # Line 4: Alt/Speed (orange)
-        draw.text((1, 21), f"A:{alt_str}", fill=(255, 150, 0), font=font_tiny)
-        draw.text((25, 21), f"S:{spd_str}", fill=(255, 150, 0), font=font_tiny)
-        draw.text((48, 21), compass, fill=(255, 100, 200), font=font_small)
+    if speed is not None:
 
-    return image
+        speed_text = (
+            f"SPD {speed}"
+        )
+
+    else:
+
+        speed_text = "SPD ?"
+
+    draw.text(
+        (1, 24),
+        alt_text,
+        font=FONT_SMALL,
+        fill=YELLOW
+    )
+
+    draw.text(
+        (34, 24),
+        speed_text,
+        font=FONT_SMALL,
+        fill=YELLOW
+    )
+
+    # ------------------------------------------------------------------
+    # Distance/direction
+    #
+    # This is drawn at the bottom-right corner.
+    # ------------------------------------------------------------------
+
+    if distance is not None:
+
+        distance_text = (
+            f"{distance:g}km {compass}"
+        )
+
+        bbox = draw.textbbox(
+            (0, 0),
+            distance_text,
+            font=FONT_SMALL
+        )
+
+        text_width = (
+            bbox[2] - bbox[0]
+        )
+
+        draw.text(
+            (
+                max(
+                    1,
+                    MATRIX_WIDTH
+                    - text_width
+                    - 1
+                ),
+                17
+            ),
+            distance_text,
+            font=FONT_SMALL,
+            fill=RED
+        )
+
+    matrix.SetImage(image)
 
 
-# ---------------------------------------------------------------------------
-# Display on LED Matrix
-# ---------------------------------------------------------------------------
-
-def display_image_on_matrix(image):
-    """
-    Display PIL image on LED matrix using the C++ binary.
-    Saves image as PPM and pipes to the display demo.
-    """
-    try:
-        # Save image as PPM format (supported by the C++ binary)
-        ppm_path = "/tmp/flight_display.ppm"
-        image.save(ppm_path, "PPM")
-        
-        # The C++ demo binary can display this
-        # For now, just save it so we can verify it's being generated
-        # Full LED integration would use the rpi-rgb-led-matrix library
-        
-        return True
-    except Exception as e:
-        print(f"Error displaying image: {e}")
-        return False
-
-
-# ---------------------------------------------------------------------------
-# Main Loop
-# ---------------------------------------------------------------------------
+# ============================================================================
+# MAIN
+# ============================================================================
 
 def main():
-    """Main loop."""
-    try:
-        print("=" * 60)
-        print("Aircraft Radar – Athens, Greece")
-        print("LED Matrix Display (64x32)")
-        print("=" * 60)
-        print()
 
-        cycle = 0
+    print(
+        "Starting 64x32 Athens Flight Radar..."
+    )
+
+    print(
+        "Press Ctrl+C to quit."
+    )
+
+    matrix = create_matrix()
+
+    try:
+
         while True:
-            timestamp = time.strftime("%H:%M:%S")
+
+            timestamp = time.strftime(
+                "%H:%M:%S"
+            )
+
+            print(
+                f"[{timestamp}] "
+                "Fetching aircraft..."
+            )
+
             raw_list = fetch_raw_aircraft()
 
             if raw_list is None:
-                print(f"[{timestamp}] API error – retrying...")
-                image = create_flight_image(None)
+
+                draw_flight_card(
+                    matrix,
+                    None,
+                    0,
+                    0
+                )
+
             else:
-                aircraft, total_scanned, displayable_count = select_one_aircraft(raw_list)
-                image = create_flight_image(aircraft)
-                
+
+                aircraft, total_scanned, displayable_count = (
+                    select_one_aircraft(
+                        raw_list
+                    )
+                )
+
                 if aircraft:
-                    cs = aircraft.get("callsign", "?")
-                    airline = aircraft.get("airline", "Unknown")
-                    alt = aircraft.get("baro_altitude", "?")
-                    spd = aircraft.get("velocity_kmh", "?")
-                    dist = aircraft.get("distance_km", "?")
-                    origin = aircraft.get("origin", "?")
-                    dest = aircraft.get("destination", "?")
-                    
-                    print(f"[{timestamp}] {cs} – {airline}")
-                    print(f"             {origin} → {dest} | Alt: {alt}m | Speed: {spd}km/h | Distance: {dist}km")
+
+                    print(
+                        f"Selected: "
+                        f"{aircraft['callsign']} "
+                        f"({aircraft['airline']}) "
+                        f"{aircraft['origin']} -> "
+                        f"{aircraft['destination']}"
+                    )
+
                 else:
-                    print(f"[{timestamp}] Scanned: {total_scanned} | Displayable: {displayable_count}")
 
-            # Display on matrix
-            display_image_on_matrix(image)
+                    print(
+                        "No suitable aircraft found."
+                    )
 
-            cycle += 1
-            time.sleep(POLL_INTERVAL)
+                draw_flight_card(
+                    matrix,
+                    aircraft,
+                    total_scanned,
+                    displayable_count
+                )
+
+            print(
+                f"Next refresh in "
+                f"{POLL_INTERVAL} seconds."
+            )
+
+            time.sleep(
+                POLL_INTERVAL
+            )
 
     except KeyboardInterrupt:
-        print("\n" + "=" * 60)
-        print("Stopped by user. Goodbye! ✈")
-        print("=" * 60)
-    except Exception as e:
-        print(f"Error: {e}")
-        import traceback
-        traceback.print_exc()
 
+        print(
+            "\nStopping radar..."
+        )
+
+    finally:
+
+        matrix.Clear()
+
+
+# ============================================================================
+# ENTRY POINT
+# ============================================================================
 
 if __name__ == "__main__":
     main()
