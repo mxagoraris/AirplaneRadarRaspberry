@@ -14,6 +14,13 @@ Dependencies:
     pillow
     rgbmatrix
 """
+import os
+import certifi
+
+print("Python:", __import__("sys").executable)
+print("Certifi:", certifi.where())
+print("Cert exists:", os.path.exists(certifi.where()))
+print("REQUESTS_CA_BUNDLE:", os.environ.get("REQUESTS_CA_BUNDLE"))
 
 import math
 import time
