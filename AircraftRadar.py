@@ -407,7 +407,7 @@ def fetch_raw_aircraft():
         "lomax": LON_MAX,
     }
     try:
-        response = requests.get(OPENSKY_URL,params=params,timeout=REQUEST_TIMEOUT,verify="/etc/ssl/certs/ca-certificates.crt")
+        response = requests.get(OPENSKY_URL, params=params, timeout=REQUEST_TIMEOUT)
         if response.status_code == 429:
             print("Rate-limited by OpenSky API (HTTP 429). Waiting for next cycle.")
             return None
