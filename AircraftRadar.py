@@ -522,7 +522,7 @@ def display_on_led(aircraft):
             line2,
             14,
             font,
-            colour_line2
+            colour_line1
         )
         
         draw_centered_text(
@@ -530,7 +530,7 @@ def display_on_led(aircraft):
             line3,
             21,
             font,
-            colour_line3
+            colour_line1
         )
 
         # ---------------------------------------------------------------
