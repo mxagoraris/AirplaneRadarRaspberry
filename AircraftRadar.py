@@ -48,7 +48,7 @@ import time
 import re
 import random
 import requests
-from rgbmatrix import RGBMatrix, RGBMatrixOptions, graphics
+
 
 
 # ===========================================================================
@@ -56,7 +56,7 @@ from rgbmatrix import RGBMatrix, RGBMatrixOptions, graphics
 # ===========================================================================
 
 try:
-    from rgbmatrix import RGBMatrix, RGBMatrixOptions
+    from rgbmatrix import RGBMatrix, RGBMatrixOptions, graphics
     from PIL import Image, ImageDraw, ImageFont
 
     RGB_AVAILABLE = True
