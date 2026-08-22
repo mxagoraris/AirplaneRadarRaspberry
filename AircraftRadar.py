@@ -379,13 +379,11 @@ def draw_centered_text(
 def display_on_led(aircraft):
 
     """
-    Render the selected aircraft directly onto
-    the 64x32 RGB LED matrix using the 5x7 BDF font.
-
     Display:
 
-        RYR8944 - Ryanair
-        BOH -> CHQ
+        AEGEAN AIRLINES
+        AEE339
+        ATH -> LHR
         10363m
     """
 
@@ -454,71 +452,55 @@ def display_on_led(aircraft):
             return
 
         # ---------------------------------------------------------------
-        # Format text
+        # Format lines
         # ---------------------------------------------------------------
 
-        line1 = f"{callsign} - {airline}"
-        line2 = f"{origin} -> {destination}"
-        line3 = f"{int(altitude)}m"
+        line1 = airline
+
+        line2 = callsign
+
+        line3 = (
+            f"{origin} -> {destination}"
+        )
+
+        line4 = (
+            f"{int(altitude)}m"
+        )
 
         # ---------------------------------------------------------------
-        # Load 5x7 BDF font
+        # Load BDF font
         # ---------------------------------------------------------------
 
         font = load_font()
 
         # ---------------------------------------------------------------
-        # Create frame canvas
+        # Create canvas
         # ---------------------------------------------------------------
 
         canvas = matrix.CreateFrameCanvas()
 
-        # ---------------------------------------------------------------
-        # Clear display
-        # ---------------------------------------------------------------
-
         canvas.Clear()
 
         # ---------------------------------------------------------------
-        # COLOURS
-        #
-        # RGB values:
-        #       255, 0, 0   = red
-        #       0, 255, 0   = green
-        #       0, 0, 255   = blue
-        #       255,255,255 = white
+        # WHITE
         # ---------------------------------------------------------------
 
-        colour_line1 = graphics.Color(
+        colour = graphics.Color(
             255,
             255,
             255
         )
 
-        colour_line2 = graphics.Color(
-            0,
-            255,
-            0
-        )
-
-        colour_line3 = graphics.Color(
-            255,
-            160,
-            0
-        )
-
         # ---------------------------------------------------------------
-        # Draw line 1
-        #
-        # 5x7 font height is small, so baseline = 7
+        # Draw
         # ---------------------------------------------------------------
 
         draw_centered_text(
             canvas,
             line1,
-            7,
+            6,
             font,
-            colour_line1
+            colour
         )
 
         draw_centered_text(
@@ -526,19 +508,27 @@ def display_on_led(aircraft):
             line2,
             14,
             font,
-            colour_line1
+            colour
         )
-        
+
         draw_centered_text(
             canvas,
             line3,
-            21,
+            22,
             font,
-            colour_line1
+            colour
+        )
+
+        draw_centered_text(
+            canvas,
+            line4,
+            30,
+            font,
+            colour
         )
 
         # ---------------------------------------------------------------
-        # Display frame
+        # Display
         # ---------------------------------------------------------------
 
         matrix.SwapOnVSync(
@@ -554,9 +544,9 @@ def display_on_led(aircraft):
         print(
             f"LED DISPLAY ERROR: {exc}"
         )
-    
+
         import traceback
-    
+
         traceback.print_exc()
 
 
