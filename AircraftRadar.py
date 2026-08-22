@@ -429,25 +429,15 @@ def draw_centered_text(
 def display_on_led(aircraft):
 
     """
-    Render the selected aircraft to the 64x32 RGB matrix.
+    Render aircraft information on the 64x32 RGB LED matrix.
 
     Layout:
 
-            RYR8944
-            Ryanair
-
-          BOH → CHQ
-
-        ALT  10,363 m
-        SPD  780 km/h
-
-    Colours:
-
-        Callsign  - white
-        Airline   - yellow
-        Route     - green
-        Altitude  - cyan
-        Speed     - blue
+          RYR8944
+          Ryanair
+        BOH > CHQ
+       ALT 10363m
+       SPD 780km/h
     """
 
     if matrix is None:
@@ -469,7 +459,7 @@ def display_on_led(aircraft):
     try:
 
         # ---------------------------------------------------------------
-        # Extract values
+        # Get aircraft information
         # ---------------------------------------------------------------
 
         callsign = aircraft.get(
@@ -502,8 +492,6 @@ def display_on_led(aircraft):
 
         # ---------------------------------------------------------------
         # Safety check
-        #
-        # Your selection logic should already guarantee these values.
         # ---------------------------------------------------------------
 
         if (
@@ -522,27 +510,23 @@ def display_on_led(aircraft):
             return
 
         # ---------------------------------------------------------------
-        # Format display text
+        # Format display strings
         # ---------------------------------------------------------------
 
         line1 = callsign
 
         line2 = airline
 
-        line3 = (
-            f"{origin} → {destination}"
-        )
+        # Use > rather than → because the arrow can cause
+        # font/rendering problems on small matrices.
+        line3 = f"{origin} > {destination}"
 
-        line4 = (
-            f"ALT  {int(altitude):,} m"
-        )
+        line4 = f"ALT {int(altitude)}m"
 
-        line5 = (
-            f"SPD  {int(speed)} km/h"
-        )
+        line5 = f"SPD {int(speed)}km/h"
 
         # ---------------------------------------------------------------
-        # Create image
+        # Create blank image
         # ---------------------------------------------------------------
 
         image = Image.new(
@@ -559,31 +543,41 @@ def display_on_led(aircraft):
         )
 
         # ---------------------------------------------------------------
-        # Fonts
+        # IMPORTANT:
+        #
+        # The matrix is only 32 pixels high.
+        #
+        # Keep fonts deliberately small.
         # ---------------------------------------------------------------
 
-        font_callsign = fit_font(
+        font1 = fit_font(
             line1,
             MATRIX_COLS - 2,
-            11
+            8
         )
 
-        font_airline = fit_font(
+        font2 = fit_font(
             line2,
             MATRIX_COLS - 2,
-            8
+            6
         )
 
-        font_route = fit_font(
+        font3 = fit_font(
             line3,
             MATRIX_COLS - 2,
-            10
+            7
         )
 
-        font_info = fit_font(
+        font4 = fit_font(
             line4,
             MATRIX_COLS - 2,
-            8
+            6
+        )
+
+        font5 = fit_font(
+            line5,
+            MATRIX_COLS - 2,
+            6
         )
 
         # ---------------------------------------------------------------
@@ -594,7 +588,7 @@ def display_on_led(aircraft):
             draw,
             line1,
             0,
-            font_callsign,
+            font1,
             fill=(255, 255, 255)
         )
 
@@ -605,8 +599,8 @@ def display_on_led(aircraft):
         draw_centered_text(
             draw,
             line2,
-            7,
-            font_airline,
+            6,
+            font2,
             fill=(255, 180, 0)
         )
 
@@ -617,8 +611,8 @@ def display_on_led(aircraft):
         draw_centered_text(
             draw,
             line3,
-            14,
-            font_route,
+            12,
+            font3,
             fill=(0, 255, 0)
         )
 
@@ -629,8 +623,8 @@ def display_on_led(aircraft):
         draw_centered_text(
             draw,
             line4,
-            22,
-            font_info,
+            19,
+            font4,
             fill=(0, 220, 255)
         )
 
@@ -641,13 +635,13 @@ def display_on_led(aircraft):
         draw_centered_text(
             draw,
             line5,
-            27,
-            font_info,
+            25,
+            font5,
             fill=(80, 150, 255)
         )
 
         # ---------------------------------------------------------------
-        # Send image to matrix
+        # Send to LED matrix
         # ---------------------------------------------------------------
 
         matrix.SetImage(
@@ -663,11 +657,6 @@ def display_on_led(aircraft):
         print(
             f"LED DISPLAY ERROR: {exc}"
         )
-
-
-
-        
-
 
 # ===========================================================================
 # GEOMETRY
