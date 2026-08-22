@@ -49,6 +49,7 @@ AIRLINE_LOOKUP = {
     "EZY": "easyJet",
     "EZS": "easyJet",
     "EJU": "easyJet",
+    "EXS":"Jet2",
     "WZZ": "Wizz Air",
     "VLG": "Vueling",
     "IBE": "Iberia",
