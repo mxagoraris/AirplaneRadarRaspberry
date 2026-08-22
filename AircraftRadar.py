@@ -12,6 +12,8 @@ Dependencies: pip install requests
 Usage: python3 aircraft_radar.py
 """
 
+#working version minimal output
+
 import math
 import time
 import re
