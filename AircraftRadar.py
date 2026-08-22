@@ -453,17 +453,9 @@ def display_on_led(aircraft):
         # Format text
         # ---------------------------------------------------------------
 
-        line1 = (
-            f"{callsign} - {airline}"
-        )
-
-        line2 = (
-            f"{origin} -> {destination}"
-        )
-
-        line3 = (
-            f"{int(altitude)}m"
-        )
+        line1 = "ABCDEFG"
+        line2 = "ATH LHR"
+        line3 = "123456"
 
         # ---------------------------------------------------------------
         # Load 5x7 BDF font
