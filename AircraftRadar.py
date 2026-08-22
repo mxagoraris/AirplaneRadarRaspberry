@@ -32,8 +32,16 @@ OBSERVER_LON = 23.742944
 # ---------------------------------------------------------------------------
 LOGO_AIRLINES = ["AEE","OAL","SKY","RYR","SEH","EZY","EZS","WZZ","EJU","VLG","IBE","BEL","SWR","AUA","EIN","OCN","THY", "DLH", "BAW", "AFR", "KLM", "UAE","TAP","THY","TOM","FIN","SAS","CSA","LOT","BMS","CTN","ROT","UAL","DAL","AAL","ACA","CPA","SIA","MAS","ANA","JAL","KAL","CSN","CCA","FDX","UPS","BOX","BCS"]
 
-# Set built once at module level for O(1) membership checks
+
+# Set built once at module level for O(1) membership checks – do not edit this.
 WHITELIST_SET = set(LOGO_AIRLINES)
+ 
+# ---------------------------------------------------------------------------
+# Logo file locations – logo rendering is handled at the display stage.
+# The filename for a given prefix is derived as f"{LOGO_DIR}/{prefix}{LOGO_EXTENSION}".
+# ---------------------------------------------------------------------------
+LOGO_DIR = "logos"
+LOGO_EXTENSION = ".png"
  
 # ---------------------------------------------------------------------------
 # Bounding box – roughly ±77 km at this latitude
@@ -197,6 +205,17 @@ def is_whitelisted_airline(callsign):
     WHITELIST_SET.  Uses the pre-built set for O(1) lookup.
     """
     return extract_airline_prefix(callsign) in WHITELIST_SET
+ 
+ 
+def logo_path_for(callsign):
+    """
+    Return the expected logo file path for a whitelisted callsign, or None if
+    the callsign's prefix is not in the whitelist.
+    """
+    prefix = extract_airline_prefix(callsign)
+    if prefix in WHITELIST_SET:
+        return f"{LOGO_DIR}/{prefix}{LOGO_EXTENSION}"
+    return None
  
  
 # ---------------------------------------------------------------------------
@@ -419,7 +438,7 @@ def fetch_raw_aircraft():
         "lomax": LON_MAX,
     }
     try:
-        response = requests.get(OPENSKY_URL,params=params,timeout=REQUEST_TIMEOUT,verify="/etc/ssl/certs/ca-certificates.crt")
+        response = requests.get(OPENSKY_URL, params=params, timeout=REQUEST_TIMEOUT)
         if response.status_code == 429:
             print("Rate-limited by OpenSky API (HTTP 429). Waiting for next cycle.")
             return None
@@ -478,6 +497,8 @@ def fetch_raw_aircraft():
 # Selection – whitelist-filtered, randomised, route-lazy
 # ---------------------------------------------------------------------------
  
+# The whitelist filter normally leaves only a handful of candidates, so this
+# ceiling on route lookups per cycle is rarely reached in practice.
 MAX_ROUTE_LOOKUPS_PER_CYCLE = 10
  
  
@@ -487,10 +508,37 @@ def select_one_aircraft(raw_list):
     whitelisted airline, returning a tuple:
  
         (aircraft_dict_or_none, total_scanned, whitelisted_count)
+ 
+    The three-stage pipeline is ordered deliberately to minimise network cost:
+ 
+    Stage 1 – cheap, no network calls:
+        Filter *raw_list* to candidates that (a) pass is_whitelisted_airline
+        and (b) pass all non-route completeness checks (baro_altitude,
+        velocity_kmh, true_track not None; on_ground False; callsign valid;
+        airline known).  This whitelist prune happens BEFORE any network call –
+        that is exactly why this version is cheaper than the previous
+        closest-first design: we never spend a route lookup on an airline we
+        cannot display.
+ 
+    Stage 2 – free, in-process only:
+        Shuffle the surviving candidate list.  Shuffling AFTER filtering (never
+        before) is deliberate: shuffling first would scatter route lookups
+        across airlines we cannot show.  The shuffle gives variety on the shelf
+        display instead of always showing the same nearby aircraft.
+ 
+    Stage 3 – potentially costly (network):
+        Walk the shuffled list calling lookup_route on each candidate.  Return
+        the FIRST one for which is_complete() passes (early exit – no point
+        resolving the rest).  Cached callsigns cost nothing and do NOT count
+        toward MAX_ROUTE_LOOKUPS_PER_CYCLE; only genuine network calls count.
+        Once the budget is exhausted we continue only with candidates already
+        resolvable via _is_cached.
     """
     total_scanned = len(raw_list)
  
+    # ------------------------------------------------------------------
     # Stage 1: whitelist + cheap completeness filter (zero network calls)
+    # ------------------------------------------------------------------
     candidates = []
     for ac in raw_list:
         cs = ac.get("callsign", "")
@@ -515,10 +563,14 @@ def select_one_aircraft(raw_list):
     if not candidates:
         return (None, total_scanned, whitelisted_count)
  
-    # Stage 2: shuffle for variety
+    # ------------------------------------------------------------------
+    # Stage 2: shuffle for variety (after filtering, never before)
+    # ------------------------------------------------------------------
     random.shuffle(candidates)
  
-    # Stage 3: route lookup with budget
+    # ------------------------------------------------------------------
+    # Stage 3: route lookup with budget – return the first complete match
+    # ------------------------------------------------------------------
     network_calls_used = 0
  
     for ac in candidates:
@@ -526,7 +578,9 @@ def select_one_aircraft(raw_list):
         cached = _is_cached(cs)
  
         if not cached:
+            # This call will hit the network; check the budget first
             if network_calls_used >= MAX_ROUTE_LOOKUPS_PER_CYCLE:
+                # Budget exhausted – skip candidates that need a network call
                 continue
             network_calls_used += 1
  
@@ -537,77 +591,12 @@ def select_one_aircraft(raw_list):
         if is_complete(ac):
             return (ac, total_scanned, whitelisted_count)
  
+    # Nothing qualified within budget
     return (None, total_scanned, whitelisted_count)
  
  
 # ---------------------------------------------------------------------------
-# LED Matrix Setup
-# ---------------------------------------------------------------------------
- 
-def setup_matrix():
-    """Initialize the RGB LED matrix."""
-    options = RGBMatrixOptions()
-    options.rows = 32
-    options.cols = 64
-    options.chain_length = 1
-    options.parallel = 1
-    options.hardware_mapping = 'regular'
-    options.gpio_slowdown = 4
-    options.pwm_bits = 11
-    options.pwm_lsb_nanoseconds = 130
-    
-    matrix = RGBMatrix(options=options)
-    return matrix
- 
-# ---------------------------------------------------------------------------
-# LED Display
-# ---------------------------------------------------------------------------
- 
-def create_display_image(aircraft):
-    """Create a 64x32 PIL image for LED matrix display."""
-    image = Image.new("RGB", (64, 32), color=(0, 0, 0))
-    draw = ImageDraw.Draw(image)
-    
-    try:
-        font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", 6)
-        font_medium = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", 7)
-    except:
-        font_small = font_medium = ImageFont.load_default()
- 
-    if aircraft is None:
-        draw.text((2, 2), "Searching", fill=(255, 0, 0), font=font_small)
-        draw.text((2, 10), "Athens", fill=(0, 255, 0), font=font_small)
-    else:
-        cs = aircraft.get("callsign", "N/A")[:8]
-        airline = aircraft.get("airline", "Unknown")[:12]
-        origin = aircraft.get("origin", "?")
-        dest = aircraft.get("destination", "?")
-        alt = aircraft.get("baro_altitude")
- 
-        alt_str = f"{int(alt)}" if alt else "?"
- 
-        # Line 1: Airline - Callsign (yellow)
-        draw.text((2, 2), f"{airline} {cs}", fill=(255, 255, 0), font=font_medium)
-        
-        # Line 2: Route (cyan)
-        draw.text((2, 11), f"{origin} - {dest}", fill=(0, 200, 255), font=font_small)
-        
-        # Line 3: Altitude (orange)
-        draw.text((2, 19), f"Alt: {alt_str}m", fill=(255, 150, 0), font=font_small)
- 
-    return image
- 
- 
-def display_on_matrix(matrix, image):
-    """Display PIL image on the LED matrix."""
-    try:
-        matrix.SetImage(image)
-    except Exception as e:
-        print(f"Error displaying on matrix: {e}")
- 
- 
-# ---------------------------------------------------------------------------
-# Terminal Display
+# Display
 # ---------------------------------------------------------------------------
  
 def print_flight_card(aircraft, timestamp, total_scanned, whitelisted_count):
@@ -649,24 +638,91 @@ def print_flight_card(aircraft, timestamp, total_scanned, whitelisted_count):
         spd       = aircraft.get("velocity_kmh")
         dist      = aircraft.get("distance_km")
         compass   = aircraft.get("compass", "?")
+        logo      = logo_path_for(cs) or "—"
  
         alt_str  = f"{int(alt):,} m"   if alt  is not None else "? m"
         spd_str  = f"{spd} km/h"       if spd  is not None else "? km/h"
         dist_str = f"{dist} km {compass}" if dist is not None else "? km"
  
         blank()
-        row(f"{cs} – {airline}")
+        row(f"{cs}  –  {airline}")
         blank()
         row(f"Route   : {origin}  →  {dest}")
         row(f"Altitude: {alt_str}")
         row(f"Speed   : {spd_str}")
         row(f"From us : {dist_str}")
         blank()
+        row(f"Logo    : {logo}")
+        blank()
         row(f"Scanned {total_scanned} aircraft")
         row(f"{timestamp}")
         blank()
  
     print(f"└{h_line}┘")
+ 
+ 
+# ---------------------------------------------------------------------------
+# LED Matrix Display (MINIMAL ADDITION)
+# ---------------------------------------------------------------------------
+ 
+LED_MATRIX = None
+ 
+def init_led_matrix():
+    """Initialize LED matrix if available."""
+    global LED_MATRIX
+    if not HAS_LED_MATRIX:
+        return False
+    try:
+        options = RGBMatrixOptions()
+        options.rows = 32
+        options.cols = 64
+        options.chain_length = 1
+        options.parallel = 1
+        options.hardware_mapping = 'regular'
+        options.gpio_slowdown = 4
+        options.pwm_bits = 11
+        options.pwm_lsb_nanoseconds = 130
+        LED_MATRIX = RGBMatrix(options=options)
+        return True
+    except Exception as e:
+        print(f"Could not initialize LED matrix: {e}")
+        return False
+ 
+ 
+def display_on_led(aircraft):
+    """Display aircraft info on LED matrix."""
+    if not LED_MATRIX:
+        return
+    
+    image = Image.new("RGB", (64, 32), color=(0, 0, 0))
+    draw = ImageDraw.Draw(image)
+    
+    try:
+        font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", 6)
+        font_medium = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", 7)
+    except:
+        font_small = font_medium = ImageFont.load_default()
+ 
+    if aircraft is None:
+        draw.text((2, 2), "Searching", fill=(255, 0, 0), font=font_small)
+        draw.text((2, 10), "Athens", fill=(0, 255, 0), font=font_small)
+    else:
+        cs = aircraft.get("callsign", "N/A")[:8]
+        airline = aircraft.get("airline", "Unknown")[:12]
+        origin = aircraft.get("origin", "?")
+        dest = aircraft.get("destination", "?")
+        alt = aircraft.get("baro_altitude")
+ 
+        alt_str = f"{int(alt)}" if alt else "?"
+ 
+        draw.text((2, 2), f"{airline} {cs}", fill=(255, 255, 0), font=font_medium)
+        draw.text((2, 11), f"{origin} - {dest}", fill=(0, 200, 255), font=font_small)
+        draw.text((2, 19), f"Alt: {alt_str}m", fill=(255, 150, 0), font=font_small)
+ 
+    try:
+        LED_MATRIX.SetImage(image)
+    except Exception as e:
+        pass
  
  
 # ---------------------------------------------------------------------------
@@ -683,30 +739,25 @@ def main():
     print("Press Ctrl+C to quit.")
     print()
  
-    # Initialize LED matrix
-    try:
-        matrix = setup_matrix()
+    # Initialize LED matrix if available
+    if init_led_matrix():
         print("LED Matrix initialized")
-    except Exception as e:
-        print(f"Error initializing matrix: {e}")
-        matrix = None
+    print()
  
     while True:
         timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
         raw_list  = fetch_raw_aircraft()
  
         if raw_list is None:
+            # Fetch failed – show an empty card so the screen stays alive
             print_flight_card(None, timestamp, 0, 0)
-            image = create_display_image(None)
+            display_on_led(None)
         else:
             aircraft, total_scanned, whitelisted_count = select_one_aircraft(raw_list)
             print_flight_card(aircraft, timestamp, total_scanned, whitelisted_count)
-            image = create_display_image(aircraft)
-        
-        # Display on LED matrix if initialized
-        if matrix:
-            display_on_matrix(matrix, image)
+            display_on_led(aircraft)
  
+        print()
         time.sleep(POLL_INTERVAL)
  
  
@@ -715,5 +766,3 @@ if __name__ == "__main__":
         main()
     except KeyboardInterrupt:
         print("\nStopped by user. Goodbye!")
- 
-
