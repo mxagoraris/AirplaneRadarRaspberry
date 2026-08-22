@@ -274,13 +274,81 @@ BDF_FONT_PATH = (
 
 def load_font():
 
-    font = graphics.Font()
+    print()
+    print("=== FONT DEBUG ===")
+    print(f"BDF_FONT_PATH = {BDF_FONT_PATH}")
 
-    font.LoadFont(
-        BDF_FONT_PATH
-    )
+    try:
 
-    return font
+        import os
+
+        print(
+            f"File exists: "
+            f"{os.path.exists(BDF_FONT_PATH)}"
+        )
+
+        print(
+            f"File readable: "
+            f"{os.access(BDF_FONT_PATH, os.R_OK)}"
+        )
+
+        if os.path.exists(BDF_FONT_PATH):
+
+            print(
+                f"File size: "
+                f"{os.path.getsize(BDF_FONT_PATH)} bytes"
+            )
+
+        print(
+            "Creating graphics.Font()..."
+        )
+
+        font = graphics.Font()
+
+        print(
+            "Calling font.LoadFont()..."
+        )
+
+        font.LoadFont(
+            BDF_FONT_PATH
+        )
+
+        print(
+            "font.LoadFont() completed."
+        )
+
+        print(
+            "=== FONT DEBUG COMPLETE ==="
+        )
+        print()
+
+        return font
+
+    except Exception as exc:
+
+        print()
+        print(
+            "!!! FONT LOAD EXCEPTION !!!"
+        )
+
+        print(
+            f"Exception type: {type(exc).__name__}"
+        )
+
+        print(
+            f"Exception message: {exc}"
+        )
+
+        import traceback
+
+        traceback.print_exc()
+
+        print(
+            "!!! END FONT LOAD EXCEPTION !!!"
+        )
+        print()
+
+        raise
 
 
 # ===========================================================================
@@ -564,6 +632,10 @@ def display_on_led(aircraft):
         print(
             f"LED DISPLAY ERROR: {exc}"
         )
+    
+        import traceback
+    
+        traceback.print_exc()
 
 
 # ===========================================================================
