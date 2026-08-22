@@ -12,8 +12,6 @@ Dependencies: pip install requests
 Usage: python3 aircraft_radar.py
 """
 
-#Clean working version
-
 import math
 import time
 import re
@@ -549,61 +547,25 @@ def select_one_aircraft(raw_list):
 
 def print_flight_card(aircraft, timestamp, total_scanned, displayable_count):
     """
-    Print a compact boxed flight card (~46 characters wide) using box-drawing
-    characters.  Stable layout between refreshes so the shelf display does not
-    flicker.
-
-    When *aircraft* is None, prints a placeholder card showing counts so the
-    screen never looks broken.
+    Print flight information in minimal format:
+    Callsign - Airline
+    FROM - TO
+    Altitude: XXX m
     """
-    width = 46  # inner content width (excluding the two border characters)
-    h_line = "─" * width
-
-    def row(text):
-        """Print a single padded card row."""
-        print(f"│ {text:<{width - 2}} │")
-
-    def blank():
-        row("")
-
-    print(f"┌{h_line}┐")
-
     if aircraft is None:
-        blank()
-        row("Searching for a flight...")
-        blank()
-        row(f"Aircraft in bbox : {total_scanned}")
-        row(f"Displayable      : {displayable_count}")
-        blank()
-        row(f"{timestamp}")
-        blank()
+        print(f"Searching for a flight... ({total_scanned} scanned, {displayable_count} displayable)")
     else:
         cs        = aircraft.get("callsign", "N/A")
         airline   = aircraft.get("airline", UNKNOWN_AIRLINE)
         origin    = aircraft.get("origin", "?")
         dest      = aircraft.get("destination", "?")
         alt       = aircraft.get("baro_altitude")
-        spd       = aircraft.get("velocity_kmh")
-        dist      = aircraft.get("distance_km")
-        compass   = aircraft.get("compass", "?")
 
-        alt_str  = f"{int(alt):,} m"   if alt  is not None else "? m"
-        spd_str  = f"{spd} km/h"       if spd  is not None else "? km/h"
-        dist_str = f"{dist} km {compass}" if dist is not None else "? km"
+        alt_str  = f"{int(alt)}" if alt is not None else "?"
 
-        blank()
-        row(f"{cs}  –  {airline}")
-        blank()
-        row(f"Route   : {origin}  →  {dest}")
-        row(f"Altitude: {alt_str}")
-        row(f"Speed   : {spd_str}")
-        row(f"From us : {dist_str}")
-        blank()
-        row(f"Scanned {total_scanned} aircraft")
-        row(f"{timestamp}")
-        blank()
-
-    print(f"└{h_line}┘")
+        print(f"{cs} - {airline}")
+        print(f"{origin} - {dest}")
+        print(f"Altitude: {alt_str}m")
 
 
 # ---------------------------------------------------------------------------
