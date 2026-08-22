@@ -21,6 +21,12 @@ import requests
 from PIL import Image, ImageDraw, ImageFont
 from rgbmatrix import RGBMatrix, RGBMatrixOptions
 
+try:
+    from rgbmatrix import RGBMatrix, RGBMatrixOptions
+    HAS_LED_MATRIX = True
+except:
+    HAS_LED_MATRIX = False
+
 # ---------------------------------------------------------------------------
 # Observer location – fixed point near Athens, Greece
 # ---------------------------------------------------------------------------
