@@ -48,6 +48,7 @@ import time
 import re
 import random
 import requests
+from rgbmatrix import RGBMatrix, RGBMatrixOptions, graphics
 
 
 # ===========================================================================
@@ -261,41 +262,32 @@ def initialise_matrix():
 # LED FONT
 # ===========================================================================
 
-def load_font(size):
+# =========================================================================== 
+# LED FONT
+# ===========================================================================
+
+BDF_FONT_PATH = (
+    "/home/mxagoraris/rpi-rgb-led-matrix/"
+    "fonts/5x7.bdf"
+)
+
+
+def load_font():
 
     """
-    Load a normal system font.
-
-    We try a few common Raspberry Pi locations.
+    Load the 5x7 BDF font supplied with
+    rpi-rgb-led-matrix.
     """
 
-    font_paths = [
+    font = graphics.Font()
 
-        "/usr/share/fonts/truetype/dejavu/"
-        "DejaVuSansCondensed.ttf",
+    if not font.LoadFont(BDF_FONT_PATH):
 
-        "/usr/share/fonts/truetype/dejavu/"
-        "DejaVuSans.ttf",
+        raise RuntimeError(
+            f"Could not load BDF font: {BDF_FONT_PATH}"
+        )
 
-        "/usr/share/fonts/truetype/liberation2/"
-        "LiberationSans-Regular.ttf",
-    ]
-
-    for path in font_paths:
-
-        try:
-
-            return ImageFont.truetype(
-                path,
-                size
-            )
-
-        except Exception:
-
-            continue
-
-    # Last resort: PIL's built-in font
-    return ImageFont.load_default()
+    return font
 
 
 # ===========================================================================
@@ -343,37 +335,41 @@ def fit_font(text, maximum_width, starting_size=10):
     return load_font(3)
 
 
+# =========================================================================== 
+# LED TEXT HELPERS
+# ===========================================================================
+
 def draw_centered_text(
-    draw,
+    canvas,
     text,
     y,
     font,
-    fill=(255, 0, 0)
+    colour
 ):
 
     """
-    Draw horizontally centred text.
+    Draw text horizontally centred on the RGB matrix.
+
+    The y coordinate is the BASELINE of the font,
+    which is how rpi-rgb-led-matrix DrawText() works.
     """
 
-    bbox = draw.textbbox(
-        (0, 0),
-        text,
-        font=font
-    )
-
-    text_width = (
-        bbox[2] - bbox[0]
+    text_width = graphics.MeasureText(
+        font,
+        text
     )
 
     x = (
-        MATRIX_COLS - text_width
+        canvas.width - text_width
     ) // 2
 
-    draw.text(
-        (x, y),
-        text,
-        font=font,
-        fill=fill
+    graphics.DrawText(
+        canvas,
+        font,
+        x,
+        y,
+        colour,
+        text
     )
 
 
@@ -384,7 +380,8 @@ def draw_centered_text(
 def display_on_led(aircraft):
 
     """
-    Render the selected aircraft to the 64x32 RGB matrix.
+    Render the selected aircraft directly onto
+    the 64x32 RGB LED matrix using the 5x7 BDF font.
 
     Display:
 
@@ -441,9 +438,6 @@ def display_on_led(aircraft):
 
         # ---------------------------------------------------------------
         # Safety check
-        #
-        # This should never fail because select_one_aircraft()
-        # already filters these values.
         # ---------------------------------------------------------------
 
         if (
@@ -477,77 +471,95 @@ def display_on_led(aircraft):
         )
 
         # ---------------------------------------------------------------
-        # Create image
+        # Load 5x7 BDF font
         # ---------------------------------------------------------------
 
-        image = Image.new(
-            "RGB",
-            (
-                MATRIX_COLS,
-                MATRIX_ROWS
-            ),
-            (0, 0, 0)
-        )
-
-        draw = ImageDraw.Draw(
-            image
-        )
+        font = load_font()
 
         # ---------------------------------------------------------------
-        # Fonts
+        # Create frame canvas
+        # ---------------------------------------------------------------
+
+        canvas = matrix.CreateFrameCanvas()
+
+        # ---------------------------------------------------------------
+        # Clear display
+        # ---------------------------------------------------------------
+
+        canvas.Clear()
+
+        # ---------------------------------------------------------------
+        # COLOURS
         #
-        # Dynamic sizing makes sure long airline names still fit.
+        # RGB values:
+        #       255, 0, 0   = red
+        #       0, 255, 0   = green
+        #       0, 0, 255   = blue
+        #       255,255,255 = white
         # ---------------------------------------------------------------
 
-        font1 = fit_font(
-            line1,
-            MATRIX_COLS - 2,
-            9
+        colour_line1 = graphics.Color(
+            255,
+            255,
+            255
         )
 
-        font2 = fit_font(
-            line2,
-            MATRIX_COLS - 2,
-            10
-        )
-
-        font3 = fit_font(
-            line3,
-            MATRIX_COLS - 2,
-            11
-        )
-
-        # ---------------------------------------------------------------
-        # Draw
-        # ---------------------------------------------------------------
-
-        draw_centered_text(
-            draw,
-            line1,
+        colour_line2 = graphics.Color(
             0,
-            font1
+            255,
+            0
         )
 
+        colour_line3 = graphics.Color(
+            255,
+            160,
+            0
+        )
+
+        # ---------------------------------------------------------------
+        # Draw line 1
+        #
+        # 5x7 font height is small, so baseline = 7
+        # ---------------------------------------------------------------
+
         draw_centered_text(
-            draw,
+            canvas,
+            line1,
+            7,
+            font,
+            colour_line1
+        )
+
+        # ---------------------------------------------------------------
+        # Draw line 2
+        # ---------------------------------------------------------------
+
+        draw_centered_text(
+            canvas,
             line2,
-            10,
-            font2
+            19,
+            font,
+            colour_line2
         )
+
+        # ---------------------------------------------------------------
+        # Draw line 3
+        # ---------------------------------------------------------------
 
         draw_centered_text(
-            draw,
+            canvas,
             line3,
-            21,
-            font3
+            31,
+            font,
+            colour_line3
         )
 
         # ---------------------------------------------------------------
-        # Send image to matrix
+        # Display frame
         # ---------------------------------------------------------------
 
-        matrix.SetImage(
-            image
+        matrix.SwapOnVSync(
+            canvas
         )
 
         print(
