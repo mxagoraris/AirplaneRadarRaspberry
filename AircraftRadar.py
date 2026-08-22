@@ -274,81 +274,26 @@ BDF_FONT_PATH = (
 
 def load_font():
 
+    import os
+
     print()
-    print("=== FONT DEBUG ===")
-    print(f"BDF_FONT_PATH = {BDF_FONT_PATH}")
+    print("=== FONT TEST INSIDE RADAR ===")
 
-    try:
+    print(f"Path: {BDF_FONT_PATH}")
+    print(f"Exists: {os.path.exists(BDF_FONT_PATH)}")
+    print(f"Readable: {os.access(BDF_FONT_PATH, os.R_OK)}")
 
-        import os
+    print("Creating Font object...")
 
-        print(
-            f"File exists: "
-            f"{os.path.exists(BDF_FONT_PATH)}"
-        )
+    font = graphics.Font()
 
-        print(
-            f"File readable: "
-            f"{os.access(BDF_FONT_PATH, os.R_OK)}"
-        )
+    print("Calling LoadFont...")
 
-        if os.path.exists(BDF_FONT_PATH):
+    font.LoadFont(BDF_FONT_PATH)
 
-            print(
-                f"File size: "
-                f"{os.path.getsize(BDF_FONT_PATH)} bytes"
-            )
+    print("SUCCESS: Font loaded inside AircraftRadar.py")
 
-        print(
-            "Creating graphics.Font()..."
-        )
-
-        font = graphics.Font()
-
-        print(
-            "Calling font.LoadFont()..."
-        )
-
-        font.LoadFont(
-            BDF_FONT_PATH
-        )
-
-        print(
-            "font.LoadFont() completed."
-        )
-
-        print(
-            "=== FONT DEBUG COMPLETE ==="
-        )
-        print()
-
-        return font
-
-    except Exception as exc:
-
-        print()
-        print(
-            "!!! FONT LOAD EXCEPTION !!!"
-        )
-
-        print(
-            f"Exception type: {type(exc).__name__}"
-        )
-
-        print(
-            f"Exception message: {exc}"
-        )
-
-        import traceback
-
-        traceback.print_exc()
-
-        print(
-            "!!! END FONT LOAD EXCEPTION !!!"
-        )
-        print()
-
-        raise
+    return font
 
 
 # ===========================================================================
@@ -1662,6 +1607,10 @@ def main():
     # This happens AFTER the initial information has been printed.
     # If it fails, we will see the error rather than getting a silent exit.
     # -----------------------------------------------------------------------
+
+    print("=== TESTING FONT BEFORE MATRIX INITIALIZATION ===")
+    test_font = load_font()
+    print("=== FONT TEST FINISHED ===")
 
     initialise_matrix()
 
