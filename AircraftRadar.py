@@ -12,22 +12,13 @@ Dependencies: pip install requests
 Usage: python3 aircraft_radar.py
 """
 
+#Clean working version
+
 import math
 import time
 import re
 import random
 import requests
-from PIL import Image, ImageDraw, ImageFont
-
-# Try to import LED matrix (optional)
-try:
-    from rgbmatrix import RGBMatrix, RGBMatrixOptions
-    HAS_LED_MATRIX = True
-except:
-    HAS_LED_MATRIX = False
-
-import ssl
-ssl._create_default_https_context = ssl._create_unverified_context
 
 # ---------------------------------------------------------------------------
 # Observer location – fixed point near Athens, Greece
@@ -558,101 +549,61 @@ def select_one_aircraft(raw_list):
 
 def print_flight_card(aircraft, timestamp, total_scanned, displayable_count):
     """
-    Print flight information in minimal format:
-    Callsign - Airline
-    FROM - TO
-    Altitude: XXX m
+    Print a compact boxed flight card (~46 characters wide) using box-drawing
+    characters.  Stable layout between refreshes so the shelf display does not
+    flicker.
+
+    When *aircraft* is None, prints a placeholder card showing counts so the
+    screen never looks broken.
     """
+    width = 46  # inner content width (excluding the two border characters)
+    h_line = "─" * width
+
+    def row(text):
+        """Print a single padded card row."""
+        print(f"│ {text:<{width - 2}} │")
+
+    def blank():
+        row("")
+
+    print(f"┌{h_line}┐")
+
     if aircraft is None:
-        print(f"Searching for a flight... ({total_scanned} scanned, {displayable_count} displayable)")
+        blank()
+        row("Searching for a flight...")
+        blank()
+        row(f"Aircraft in bbox : {total_scanned}")
+        row(f"Displayable      : {displayable_count}")
+        blank()
+        row(f"{timestamp}")
+        blank()
     else:
         cs        = aircraft.get("callsign", "N/A")
         airline   = aircraft.get("airline", UNKNOWN_AIRLINE)
         origin    = aircraft.get("origin", "?")
         dest      = aircraft.get("destination", "?")
         alt       = aircraft.get("baro_altitude")
+        spd       = aircraft.get("velocity_kmh")
+        dist      = aircraft.get("distance_km")
+        compass   = aircraft.get("compass", "?")
 
-        alt_str  = f"{int(alt)}" if alt is not None else "?"
+        alt_str  = f"{int(alt):,} m"   if alt  is not None else "? m"
+        spd_str  = f"{spd} km/h"       if spd  is not None else "? km/h"
+        dist_str = f"{dist} km {compass}" if dist is not None else "? km"
 
-        print(f"{cs} - {airline}")
-        print(f"{origin} - {dest}")
-        print(f"Altitude: {alt_str}m")
+        blank()
+        row(f"{cs}  –  {airline}")
+        blank()
+        row(f"Route   : {origin}  →  {dest}")
+        row(f"Altitude: {alt_str}")
+        row(f"Speed   : {spd_str}")
+        row(f"From us : {dist_str}")
+        blank()
+        row(f"Scanned {total_scanned} aircraft")
+        row(f"{timestamp}")
+        blank()
 
-
-# ---------------------------------------------------------------------------
-# LED Matrix Setup and Display
-# ---------------------------------------------------------------------------
-
-LED_MATRIX = None
-
-def init_led_matrix():
-    """Initialize the RGB LED matrix."""
-    global LED_MATRIX
-    if not HAS_LED_MATRIX:
-        return False
-    try:
-        options = RGBMatrixOptions()
-        options.rows = 32
-        options.cols = 64
-        options.chain_length = 1
-        options.parallel = 1
-        options.hardware_mapping = 'regular'
-        options.gpio_slowdown = 4
-        options.pwm_bits = 11
-        options.pwm_lsb_nanoseconds = 130
-        LED_MATRIX = RGBMatrix(options=options)
-        return True
-    except Exception as e:
-        print(f"Could not initialize LED matrix: {e}")
-        return False
-
-
-def create_led_image(aircraft):
-    """Create a 64x32 PIL image for the LED matrix."""
-    image = Image.new("RGB", (64, 32), color=(0, 0, 0))
-    draw = ImageDraw.Draw(image)
-    
-    try:
-        font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", 6)
-        font_medium = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", 7)
-    except:
-        font_small = font_medium = ImageFont.load_default()
-
-    if aircraft is None:
-        draw.text((2, 2), "Searching...", fill=(255, 0, 0), font=font_small)
-        draw.text((2, 12), "Athens", fill=(0, 255, 0), font=font_small)
-        draw.text((2, 22), "airspace", fill=(0, 255, 0), font=font_small)
-    else:
-        cs      = aircraft.get("callsign", "N/A")[:8]
-        airline = aircraft.get("airline", UNKNOWN_AIRLINE)[:12]
-        origin  = aircraft.get("origin", "?")
-        dest    = aircraft.get("destination", "?")
-        alt     = aircraft.get("baro_altitude")
-
-        alt_str = f"{int(alt)}" if alt is not None else "?"
-
-        # Line 1: Callsign - Airline (yellow)
-        draw.text((2, 2), f"{cs} - {airline}", fill=(255, 255, 0), font=font_medium)
-        
-        # Line 2: FROM - TO (cyan)
-        draw.text((2, 11), f"{origin} - {dest}", fill=(0, 200, 255), font=font_small)
-        
-        # Line 3: Altitude (orange)
-        draw.text((2, 19), f"Altitude: {alt_str}m", fill=(255, 150, 0), font=font_small)
-
-    return image
-
-
-def display_on_led(aircraft):
-    """Create image and display on LED matrix."""
-    if not LED_MATRIX:
-        return
-    
-    image = create_led_image(aircraft)
-    try:
-        LED_MATRIX.SetImage(image)
-    except Exception as e:
-        print(f"Error displaying on matrix: {e}")
+    print(f"└{h_line}┘")
 
 
 # ---------------------------------------------------------------------------
@@ -669,11 +620,6 @@ def main():
     print("Press Ctrl+C to quit.")
     print()
 
-    # Initialize LED matrix if available
-    if init_led_matrix():
-        print("LED Matrix initialized")
-    print()
-
     while True:
         timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
         raw_list  = fetch_raw_aircraft()
@@ -681,11 +627,9 @@ def main():
         if raw_list is None:
             # Fetch failed – show an empty card so the screen stays alive
             print_flight_card(None, timestamp, 0, 0)
-            display_on_led(None)
         else:
             aircraft, total_scanned, displayable_count = select_one_aircraft(raw_list)
             print_flight_card(aircraft, timestamp, total_scanned, displayable_count)
-            display_on_led(aircraft)
 
         print()
         time.sleep(POLL_INTERVAL)
