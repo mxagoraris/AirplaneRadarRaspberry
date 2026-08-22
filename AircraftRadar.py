@@ -343,12 +343,57 @@ def fit_font(text, maximum_width, starting_size=10):
     return load_font(3)
 
 
+# ===========================================================================
+# LED TEXT HELPERS
+# ===========================================================================
+
+def fit_font(text, maximum_width, starting_size=10):
+
+    """
+    Find the largest font that fits inside the matrix width.
+    """
+
+    for size in range(
+        starting_size,
+        3,
+        -1
+    ):
+
+        font = load_font(size)
+
+        dummy_image = Image.new(
+            "RGB",
+            (
+                MATRIX_COLS,
+                MATRIX_ROWS
+            )
+        )
+
+        draw = ImageDraw.Draw(
+            dummy_image
+        )
+
+        bbox = draw.textbbox(
+            (0, 0),
+            text,
+            font=font
+        )
+
+        width = bbox[2] - bbox[0]
+
+        if width <= maximum_width:
+
+            return font
+
+    return load_font(3)
+
+
 def draw_centered_text(
     draw,
     text,
     y,
     font,
-    fill=(255, 0, 0)
+    fill=(255, 255, 255)
 ):
 
     """
@@ -386,11 +431,23 @@ def display_on_led(aircraft):
     """
     Render the selected aircraft to the 64x32 RGB matrix.
 
-    Display:
+    Layout:
 
-        RYR8944 - Ryanair
-        BOH -> CHQ
-        10363m
+            RYR8944
+            Ryanair
+
+          BOH → CHQ
+
+        ALT  10,363 m
+        SPD  780 km/h
+
+    Colours:
+
+        Callsign  - white
+        Airline   - yellow
+        Route     - green
+        Altitude  - cyan
+        Speed     - blue
     """
 
     if matrix is None:
@@ -439,11 +496,14 @@ def display_on_led(aircraft):
             "baro_altitude"
         )
 
+        speed = aircraft.get(
+            "velocity_kmh"
+        )
+
         # ---------------------------------------------------------------
         # Safety check
         #
-        # This should never fail because select_one_aircraft()
-        # already filters these values.
+        # Your selection logic should already guarantee these values.
         # ---------------------------------------------------------------
 
         if (
@@ -452,6 +512,7 @@ def display_on_led(aircraft):
             or not origin
             or not destination
             or altitude is None
+            or speed is None
         ):
 
             print(
@@ -461,19 +522,23 @@ def display_on_led(aircraft):
             return
 
         # ---------------------------------------------------------------
-        # Format text
+        # Format display text
         # ---------------------------------------------------------------
 
-        line1 = (
-            f"{callsign} - {airline}"
-        )
+        line1 = callsign
 
-        line2 = (
-            f"{origin} -> {destination}"
-        )
+        line2 = airline
 
         line3 = (
-            f"{int(altitude)}m"
+            f"{origin} → {destination}"
+        )
+
+        line4 = (
+            f"ALT  {int(altitude):,} m"
+        )
+
+        line5 = (
+            f"SPD  {int(speed)} km/h"
         )
 
         # ---------------------------------------------------------------
@@ -495,51 +560,90 @@ def display_on_led(aircraft):
 
         # ---------------------------------------------------------------
         # Fonts
-        #
-        # Dynamic sizing makes sure long airline names still fit.
         # ---------------------------------------------------------------
 
-        font1 = fit_font(
+        font_callsign = fit_font(
             line1,
-            MATRIX_COLS - 2,
-            9
-        )
-
-        font2 = fit_font(
-            line2,
-            MATRIX_COLS - 2,
-            10
-        )
-
-        font3 = fit_font(
-            line3,
             MATRIX_COLS - 2,
             11
         )
 
+        font_airline = fit_font(
+            line2,
+            MATRIX_COLS - 2,
+            8
+        )
+
+        font_route = fit_font(
+            line3,
+            MATRIX_COLS - 2,
+            10
+        )
+
+        font_info = fit_font(
+            line4,
+            MATRIX_COLS - 2,
+            8
+        )
+
         # ---------------------------------------------------------------
-        # Draw
+        # Draw callsign
         # ---------------------------------------------------------------
 
         draw_centered_text(
             draw,
             line1,
             0,
-            font1
+            font_callsign,
+            fill=(255, 255, 255)
         )
+
+        # ---------------------------------------------------------------
+        # Draw airline
+        # ---------------------------------------------------------------
 
         draw_centered_text(
             draw,
             line2,
-            10,
-            font2
+            7,
+            font_airline,
+            fill=(255, 180, 0)
         )
+
+        # ---------------------------------------------------------------
+        # Draw route
+        # ---------------------------------------------------------------
 
         draw_centered_text(
             draw,
             line3,
-            21,
-            font3
+            14,
+            font_route,
+            fill=(0, 255, 0)
+        )
+
+        # ---------------------------------------------------------------
+        # Draw altitude
+        # ---------------------------------------------------------------
+
+        draw_centered_text(
+            draw,
+            line4,
+            22,
+            font_info,
+            fill=(0, 220, 255)
+        )
+
+        # ---------------------------------------------------------------
+        # Draw speed
+        # ---------------------------------------------------------------
+
+        draw_centered_text(
+            draw,
+            line5,
+            27,
+            font_info,
+            fill=(80, 150, 255)
         )
 
         # ---------------------------------------------------------------
@@ -559,6 +663,10 @@ def display_on_led(aircraft):
         print(
             f"LED DISPLAY ERROR: {exc}"
         )
+
+
+
+        
 
 
 # ===========================================================================
