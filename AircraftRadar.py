@@ -274,18 +274,11 @@ BDF_FONT_PATH = (
 
 def load_font():
 
-    """
-    Load the 5x7 BDF font supplied with
-    rpi-rgb-led-matrix.
-    """
-
     font = graphics.Font()
 
-    if not font.LoadFont(BDF_FONT_PATH):
-
-        raise RuntimeError(
-            f"Could not load BDF font: {BDF_FONT_PATH}"
-        )
+    font.LoadFont(
+        BDF_FONT_PATH
+    )
 
     return font
 
