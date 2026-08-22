@@ -44,6 +44,7 @@ AIRLINE_LOOKUP = {
     "AEE": "Aegean",
     "OAL": "Olympic",
     "SKY": "Sky Express",
+    "SEH": "Sky Express",
     "RYR": "Ryanair",
     "EZY": "easyJet",
     "EZS": "easyJet",
