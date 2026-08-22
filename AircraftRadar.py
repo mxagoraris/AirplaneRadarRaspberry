@@ -354,15 +354,19 @@ def draw_centered_text(
     colour
 ):
 
-    """
-    Temporary diagnostic version.
-    Draws text from the LEFT edge.
-    """
+    text_width = len(text) * 4
+
+    x = (
+        canvas.width - text_width
+    ) // 2
+
+    if x < 0:
+        x = 0
 
     graphics.DrawText(
         canvas,
         font,
-        0,
+        x,
         y,
         colour,
         text
@@ -453,9 +457,9 @@ def display_on_led(aircraft):
         # Format text
         # ---------------------------------------------------------------
 
-        line1 = "ABCDEFG"
-        line2 = "ATHLHR"
-        line3 = "123456"
+        line1 = f"{callsign} - {airline}"
+        line2 = f"{origin} -> {destination}"
+        line3 = f"{int(altitude)}m"
 
         # ---------------------------------------------------------------
         # Load 5x7 BDF font
