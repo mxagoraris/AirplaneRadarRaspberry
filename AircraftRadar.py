@@ -26,6 +26,9 @@ try:
 except:
     HAS_LED_MATRIX = False
 
+import ssl
+ssl._create_default_https_context = ssl._create_unverified_context
+
 # ---------------------------------------------------------------------------
 # Observer location – fixed point near Athens, Greece
 # ---------------------------------------------------------------------------
