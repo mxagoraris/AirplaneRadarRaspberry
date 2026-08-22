@@ -356,14 +356,14 @@ def draw_centered_text(
 
     """
     Draw text horizontally centred on the RGB matrix.
-
-    The y coordinate is the BASELINE of the font,
-    which is how rpi-rgb-led-matrix DrawText() works.
     """
 
-    text_width = graphics.MeasureText(
-        font,
-        text
+    # Calculate the width manually using the 5x7 font.
+    text_width = sum(
+        font.CharacterWidth(
+            ord(character)
+        )
+        for character in text
     )
 
     x = (
