@@ -236,6 +236,7 @@ def initialise_matrix():
         options.gpio_slowdown = MATRIX_GPIO_SLOWDOWN
 
         options.hardware_mapping = "regular"
+        options.drop_privileges = False
 
         matrix = RGBMatrix(
             options=options
