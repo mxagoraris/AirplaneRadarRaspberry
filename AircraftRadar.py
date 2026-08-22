@@ -267,7 +267,7 @@ def initialise_matrix():
 # ===========================================================================
 
 BDF_FONT_PATH = (
-    "/home/mxagoraris/rpi-rgb-led-matrix/"
+    "/home/mxagoraris/aircraft-radar/rpi-rgb-led-matrix/"
     "fonts/5x7.bdf"
 )
 
