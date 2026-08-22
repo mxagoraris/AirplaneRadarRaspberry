@@ -358,17 +358,17 @@ def draw_centered_text(
     Draw text horizontally centred on the RGB matrix.
     """
 
-    # Calculate the width manually using the 5x7 font.
-    text_width = sum(
-        font.CharacterWidth(
-            ord(character)
-        )
-        for character in text
-    )
+    # 4x6 font:
+    # approximately 4 pixels per character.
+    text_width = len(text) * 4
 
     x = (
         canvas.width - text_width
     ) // 2
+
+    # Prevent the text from starting outside the display.
+    if x < 0:
+        x = 0
 
     graphics.DrawText(
         canvas,
@@ -378,7 +378,6 @@ def draw_centered_text(
         colour,
         text
     )
-
 
 # ===========================================================================
 # LED DISPLAY
