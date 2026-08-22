@@ -29,7 +29,7 @@ OBSERVER_LON = 23.742944
 # ---------------------------------------------------------------------------
 # AIRLINE WHITELIST – edit this list to select which airlines to display
 # ---------------------------------------------------------------------------
-LOGO_AIRLINES = ["AEE","OAL","SKY","RYR","SEH","EZY","EZS",,"WZZ","EJU","VLG","IBE","BEL","SWR","AUA","EIN","OCN","THY", "DLH", "BAW", "AFR", "KLM", "UAE","TAP","THY","TOM","FIN","SAS","CSA","LOT","BMS","CTN","ROT","UAL","DAL","AAL","ACA","CPA","SIA","MAS","ANA","JAL","KAL","CSN","CCA","FDX","UPS","BOX","BCS"]
+LOGO_AIRLINES = ["AEE","OAL","SKY","RYR","SEH","EZY","EZS","WZZ","EJU","VLG","IBE","BEL","SWR","AUA","EIN","OCN","THY", "DLH", "BAW", "AFR", "KLM", "UAE","TAP","THY","TOM","FIN","SAS","CSA","LOT","BMS","CTN","ROT","UAL","DAL","AAL","ACA","CPA","SIA","MAS","ANA","JAL","KAL","CSN","CCA","FDX","UPS","BOX","BCS"]
 
 # Set built once at module level for O(1) membership checks
 WHITELIST_SET = set(LOGO_AIRLINES)
